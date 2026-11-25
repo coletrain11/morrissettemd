@@ -1306,6 +1306,8 @@ function startDisp(){
   const step = d => { autoOnce = false; if (!T.length) return; if (liveOn) setLive(false); pause(); seek(relNow() + d/fps()); };
   $('#bPrev').onclick = () => step(-1); $('#bNext').onclick = () => step(1);
   $('#scrub').oninput = () => { autoOnce = false; if (!T.length) return; if (liveOn) setLive(false); pause(); seek(range[0] + (+$('#scrub').value/1000) * (range[1] - range[0])); };
+  /* letting go of the timeline (tap or drag) plays from that point */
+  $('#scrub').onchange = () => { if (!T.length || liveOn) return; seek(range[0] + (+$('#scrub').value/1000) * (range[1] - range[0])); play(); };
   const nudge = d => { if (!T.length || mode !== 'normal') return; const rel = relNow(); cur.nudge += d; T = tracks(); $('#nVal').textContent = fmtN(cur.nudge); seek(rel); persist(cur); };
   $('#nMinus').onclick = () => nudge(-1); $('#nPlus').onclick = () => nudge(1);
   $('#bCap').onclick = () => { closeSheets(); trigger(); };
