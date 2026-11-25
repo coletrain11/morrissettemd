@@ -95,7 +95,19 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 #cflash{position:absolute;inset:0;border:10px solid var(--ball);opacity:0;pointer-events:none;transition:opacity .4s}
 #cflash.on{opacity:1;transition:none}
 /* display */
-#disp{display:grid;grid-template-rows:minmax(0,1fr) auto}
+#disp{display:grid;grid-template-rows:minmax(0,1fr) auto auto}
+#strip{display:flex;gap:8px;padding:8px calc(10px + var(--sr)) 4px calc(10px + var(--sl));overflow-x:auto;background:var(--panel);border-top:1px solid var(--line);scrollbar-width:none}
+#strip::-webkit-scrollbar{display:none}
+#stList{display:flex;gap:8px}
+.st{flex:none;width:118px;height:70px;padding:0;position:relative;overflow:hidden;border-radius:10px;border:2px solid var(--line);background:#000;display:block}
+.st img{width:100%;height:100%;object-fit:cover;display:block}
+.st span{position:absolute;left:4px;bottom:4px;background:#000c;color:#fff;font-size:12px;font-weight:700;padding:1px 6px;border-radius:6px;white-space:nowrap}
+.st .ph2{position:absolute;inset:0;display:grid;place-items:center;color:var(--mut);font-size:13px}
+.st.cur{border-color:var(--ball)}
+.st.lt{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-weight:700;letter-spacing:.04em;background:var(--panel2)}
+.st.lt i{width:10px;height:10px;border-radius:50%;background:var(--red)}
+.st.lt.on{background:var(--red);border-color:var(--red);color:#fff}.st.lt.on i{background:#fff}
+.st .mk{position:absolute;right:4px;top:4px}
 #stage{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px;padding:calc(4px + var(--st)) calc(4px + var(--sr)) 4px calc(4px + var(--sl))}
 .view{position:relative;background:#000;border-radius:12px;overflow:hidden}
 .view video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -214,7 +226,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
   <div class="ctop"><span class="dot"></span><b id="crole"></b><span id="cstat">Not connected</span><span id="cinfo" class="small"></span><span id="csent" class="small"></span><span style="flex:1"></span><button id="cGuides" style="min-height:36px;padding:0 12px">Lines</button><button id="cHelp" style="min-height:36px;padding:0 12px">Guide</button></div>
   <div class="cbot">
     <div class="meter"><i id="clvl"></i><s id="cthr"></s></div>
-    <label>Trigger <input type="range" id="cthrR" min="-40" max="0" step="1"><span id="cthrV" style="width:4em;text-align:right"></span></label>
+    <label>Trigger <input type="range" id="cthrR" min="-40" max="0" step="1"><span id="cthrV" style="width:4em;text-align:right"></span></label><button id="cAuto" style="min-height:36px;padding:0 12px">Auto</button>
   </div>
   <div id="cflash"></div>
   <div id="cstart" class="cover">
@@ -338,6 +350,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
       <div class="vlab">FO</div><div class="livetag">LIVE</div><div class="drawtag">Drawing</div>
       <div class="empty"><b>Face-on</b><span>Hit a ball and the replay appears here</span></div></div>
   </div>
+  <div id="strip"><button class="st lt" id="stLive" aria-label="Live view"><i></i>LIVE</button><div id="stList"></div></div>
   <div id="bar">
     <button id="bPlay" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
     <div class="seg" id="speeds"><button data-r="1">1×</button><button data-r="0.5">½×</button><button data-r="0.25">¼×</button><button data-r="0.125">⅛×</button></div>
@@ -412,7 +425,8 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
       <div class="opts">
         <label>Before impact <select id="oPre"><option>2</option><option>2.5</option><option>3</option><option>4</option><option>5</option></select> s</label>
         <label>After impact <select id="oPost"><option>1</option><option>1.5</option><option>2</option><option>2.5</option><option>3</option></select> s</label>
-        <label><input type="checkbox" id="oLoop"> Loop replay</label>
+        <label>After each swing <select id="oAfter"><option value="live">Replay once, then live</option><option value="loop">Loop until the next swing</option></select></label>
+        <label><input type="checkbox" id="oLoop"> Loop when I replay a swing myself</label>
         <label><input type="checkbox" id="oBoth"> Both phones must hear impact (ignores other bays)</label>
         <label><input type="checkbox" id="oMotion"> Also catch practice swings by motion (beta)</label>
         <span class="small" style="flex:1 1 280px">Each phone listens for the sound of impact. Set its trigger line just above the room noise, then make a practice hit. If it misses, lower the line.</span>
@@ -542,13 +556,17 @@ function startCam(role, room){
       $('#bubT').textContent = ok ? 'Level' : `Tilted ${Math.round(Math.max(Math.abs(roll), Math.abs(pitch)))}°`;
     });
   }
-  let thr = ls.get('thr-'+role, -12), pre = 3, post = 2, hd = ls.get('hd', false), sent = 0, motionOn = false;
+  let thr = ls.get('thr-'+role, -12), pre = 3, post = 2, hd = ls.get('hd', false), sent = 0, motionOn = false, autoThr = ls.get('auto-'+role, true), lastPing = now();
+  const sentClips = [];
   let peer = null, conn = null, stream = null, mime = '', info = {}, retryT = 0, liveCall = null;
   const setQ = v => { hd = v; ls.set('hd', v); $('#q720').classList.toggle('on', !v); $('#q1080').classList.toggle('on', v); };
   setQ(hd); $('#q720').onclick = () => setQ(false); $('#q1080').onclick = () => setQ(true);
   const setThr = v => { thr = +v; ls.set('thr-'+role, thr); $('#cthrR').value = thr; $('#cthrV').textContent = thr + ' dB'; $('#cthr').style.left = pct(thr) + '%'; };
   setThr(thr);
-  $('#cthrR').oninput = e => { setThr(e.target.value); send({t:'thr', v:thr}); };
+  const setAuto = on => { autoThr = on; ls.set('auto-'+role, on); $('#cAuto').classList.toggle('on', on); send({t:'thr', v:thr, auto:autoThr}); };
+  $('#cthrR').oninput = e => { setThr(e.target.value); setAuto(false); };
+  $('#cAuto').onclick = () => setAuto(!autoThr);
+  $('#cAuto').classList.toggle('on', autoThr);
   const stat = (s, ok) => { $('#cstat').textContent = s; $('#cstat').className = ok ? 'ok' : ''; };
   const send = m => { if (conn && conn.open) try { conn.send(m); } catch(e){} };
   const flash = () => { const f = $('#cflash'); f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 60); };
@@ -570,7 +588,7 @@ function startCam(role, room){
     const c = peer.connect(PREFIX + room, {reliable:true, serialization:'binary', metadata:{role}});
     const to = setTimeout(() => { if (!c.open) { try { c.close(); } catch(_){} stat('Could not reach the iPad, retrying…'); retry(500); } }, 15000);
     c.on('open', async () => {
-      clearTimeout(to); conn = c; stat('Connected to iPad', true); send({t:'info', ...info}); send({t:'thr', v:thr});
+      clearTimeout(to); conn = c; lastPing = now(); stat('Connected to iPad', true); send({t:'info', ...info}); send({t:'thr', v:thr, auto:autoThr});
       await sleep(1500); const lt = await linkType(c); if (lt && conn === c) stat('Connected · ' + lt, true);
     });
     c.on('data', onMsg);
@@ -579,17 +597,23 @@ function startCam(role, room){
   }
   function onMsg(m){
     if (!m || !m.t) return;
-    if (m.t === 'ping') send({t:'pong', a:m.a});
+    if (m.t === 'ping') { lastPing = now(); send({t:'pong', a:m.a}); }
     else if (m.t === 'cfg') { pre = +m.pre; post = +m.post; motionOn = !!m.motion; }
-    else if (m.t === 'thr') setThr(m.v);
+    else if (m.t === 'thr') { setThr(m.v); if (m.auto != null) setAuto(!!m.auto); }
+    else if (m.t === 'resend') { for (const id of m.ids || []) { const it = sentClips.find(x => x.meta.id === id); if (it) sendClip(it); } }
     else if (m.t === 'cap') capture(m.id, +m.lat || 0);
     else if (m.t === 'live') m.on ? startLive() : stopLive();
   }
+  setInterval(() => {
+    if (conn && conn.open && now() - lastPing > 8000) { const c = conn; conn = null; try { c.close(); } catch(e){} stat('Connection stalled, reconnecting…'); retry(300); }
+  }, 2000);
   function startLive(){
     if (liveCall || !stream || !peer || !conn) return;
     try {
       liveCall = peer.call(PREFIX + room, new MediaStream(stream.getVideoTracks()), {metadata:{role}});
       const lc = liveCall; lc.on('close', () => { if (liveCall === lc) liveCall = null; }); lc.on('error', () => {});
+      const cap = async () => { try { for (const snd of lc.peerConnection.getSenders()) { if (!snd.track || snd.track.kind !== 'video') continue; const pp = snd.getParameters(); pp.encodings = (pp.encodings && pp.encodings.length ? pp.encodings : [{}]).map(e => ({...e, maxBitrate:900000, scaleResolutionDownBy:2})); await snd.setParameters(pp); } } catch(e){} };
+      setTimeout(cap, 1500); setTimeout(cap, 4000);
     } catch(e) { liveCall = null; }
   }
   function stopLive(){ if (liveCall) { const lc = liveCall; liveCall = null; try { lc.close(); } catch(e){} } }
@@ -615,7 +639,15 @@ function startCam(role, room){
   };
 
   /* impact detection: peak level of the mic, ~100 times a second */
-  const hist = []; let lastHit = -1e9;
+  const hist = [], noise = [], hitsDb = []; let lastHit = -1e9, hitPk = -99, lastAuto = 0;
+  /* automatic trigger line: well above the loudest background noise, comfortably below your recent hits */
+  function autoTune(){
+    const v = noise.map(x => x[1]).sort((a, b) => a - b), n95 = v[Math.floor(v.length*0.95)];
+    let target = n95 + 12;
+    if (hitsDb.length >= 2) { const h = hitsDb.slice().sort((a, b) => a - b), med = h[Math.floor(h.length/2)]; target = Math.min(target, med - 8); }
+    target = Math.round(Math.max(n95 + 6, Math.min(-3, Math.max(-40, target))));
+    if (Math.abs(target - thr) >= 1) { setThr(target); send({t:'thr', v:thr, auto:true}); }
+  }
   function startAudio(){
     const AC = window.AudioContext || window.webkitAudioContext; const ac = new AC(); ac.resume();
     const an = ac.createAnalyser(); an.fftSize = 1024; ac.createMediaStreamSource(stream).connect(an);
@@ -626,8 +658,15 @@ function startCam(role, room){
       const t = now(), d = dB(m);
       hist.push([t, d]); while (hist.length && hist[0][0] < t - 3000) hist.shift();
       peakSince = Math.max(peakSince, d); shown = Math.max(d, shown - 1.2);
-      if (d >= thr && t - lastHit > 2500) { lastHit = t; send({t:'hit', v:Math.round(d), kind:'sound'}); }
-      if (t - lastSend > 200) { lastSend = t; send({t:'lvl', v:Math.round(peakSince)}); peakSince = -99; }
+      if (d >= thr && t - lastHit > 2500) { lastHit = t; hitPk = d; send({t:'hit', v:Math.round(d), kind:'sound'}); }
+      if (t - lastHit < 200) hitPk = Math.max(hitPk, d);
+      else if (hitPk > -99) { hitsDb.push(hitPk); if (hitsDb.length > 12) hitsDb.shift(); hitPk = -99; }
+      if (t - lastSend > 200) {
+        lastSend = t; send({t:'lvl', v:Math.round(peakSince)});
+        if (t - lastHit > 1500) { noise.push([t, peakSince]); while (noise.length && noise[0][0] < t - 30000) noise.shift(); }
+        peakSince = -99;
+      }
+      if (autoThr && t - lastAuto > 2000 && noise.length > 25) { lastAuto = t; autoTune(); }
       if (++k % 3 === 0) $('#clvl').style.width = pct(shown) + '%';
     }, 10);
   }
@@ -708,16 +747,27 @@ function startCam(role, room){
   async function deliver(r){
     const blob = new Blob(r.chunks, {type:(r.chunks[0] && r.chunks[0].type) || mime || 'video/mp4'});
     r.chunks = [];
-    for (let i = 0; !(conn && conn.open) && i < 60; i++) await sleep(250);
-    if (!(conn && conn.open)) return;
-    const ab = await blob.arrayBuffer(), CH = 192*1024, n = Math.ceil(ab.byteLength / CH);
+    const ab = await blob.arrayBuffer(), CH = 64*1024, n = Math.ceil(ab.byteLength / CH);
     const ms = mot.filter(p => p[0] >= r.tImp - pre*1000 - 300 && p[0] <= r.tImp + post*1000 + 100).map(p => [+((p[0] - r.tImp)/1000).toFixed(3), +p[1].toFixed(4)]);
-    send({t:'clip', id:r.id, mime:blob.type, est:r.est, heard:r.heard, n, size:ab.byteLength, fps:info.fps, mot:ms});
-    for (let i = 0; i < n; i++) {
-      while (conn && conn.dataChannel && conn.dataChannel.bufferedAmount > 3e6) await sleep(15);
-      send({t:'ch', id:r.id, i, d:ab.slice(i*CH, (i+1)*CH)});
-    }
-    $('#csent').textContent = `· ${++sent} swing${sent > 1 ? 's' : ''} sent`;
+    const it = {ab, CH, meta:{t:'clip', id:r.id, mime:blob.type, est:r.est, heard:r.heard, n, size:ab.byteLength, fps:info.fps, mot:ms}};
+    sentClips.push(it); while (sentClips.length > 8) sentClips.shift();
+    for (let i = 0; !(conn && conn.open) && i < 240; i++) await sleep(250);
+    if (conn && conn.open) sendClip(it);
+  }
+  async function sendClip(it){
+    if (it.busy) return; it.busy = true;
+    const c = conn;
+    try {
+      if (!(c && c.open)) return;
+      c.send(it.meta);
+      const n = it.meta.n;
+      for (let i = 0; i < n; i++) {
+        if (conn !== c || !c.open) return;
+        while (c.dataChannel && c.dataChannel.bufferedAmount > 1e6) { await sleep(10); if (conn !== c || !c.open) return; }
+        c.send({t:'ch', id:it.meta.id, i, d:it.ab.slice(i*it.CH, (i+1)*it.CH)});
+      }
+      if (!it.done) { it.done = true; $('#csent').textContent = `· ${++sent} swing${sent > 1 ? 's' : ''} sent`; }
+    } catch(e) {} finally { it.busy = false; }
   }
 }
 
@@ -773,13 +823,14 @@ function startDisp(){
   const extraIce = cleanIce(ls.get('ice', []));
   const ICE = {iceServers:[...STUN, ...extraIce]};
   const cfg = Object.assign({pre:3, post:2, speed:0.5, loop:true, flip:{}, fit:false, xSpeed:0.5, xLines:true,
-    both:true, motion:false, club:'', cmpA:'side', cmpStyle:'sbs', ghostA:0.5, gid:'', upX:true, upClips:false}, ls.get('cfg', {}));
+    both:true, motion:false, after:'live', club:'', cmpA:'side', cmpStyle:'sbs', ghostA:0.5, gid:'', upX:true, upClips:false}, ls.get('cfg', {}));
   const save = () => ls.set('cfg', cfg);
 
   /* ---------- state (declared before anything runs) ---------- */
-  const conns = {}, rtt = {}, info = {}, lvl = {}, thr = {}, link = {}, inbound = {}, liveS = {};
+  const conns = {}, rtt = {}, info = {}, lvl = {}, thr = {}, link = {}, inbound = {}, liveS = {}, seen = {}, autoT = {};
+  const stats = {side:{rc:0, ok:0, late:0, miss:0}, front:{rc:0, ok:0, late:0, miss:0}};
   let swings = [], lastTrig = -1e9, seq = 0, cur = null, ref = null, peer = null, liveOn = false, netText = 'Connecting…';
-  let hits = {}, soloT = 0, mode = 'normal', T = [], loadSeq = 0, drawOn = false;
+  let autoOnce = false, hits = {}, soloT = 0, mode = 'normal', T = [], loadSeq = 0, drawOn = false;
   let rate = cfg.speed, playing = false, range = [0, 0], holdT = 0, exporting = false, xRate = 1, onEnd = null;
   let xDraw = null, xUrl = null, xFile = null;
   const V = {front:$('#vw-front video.rp'), side:$('#vw-side video.rp')}, G = $('#ghost');
@@ -805,12 +856,12 @@ function startDisp(){
     const tx = async (m, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction('swings', m); const q = fn(t.objectStore('swings')); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); };
     return {put: o => tx('readwrite', st => st.put(o)), del: id => tx('readwrite', st => st.delete(id)), all: () => tx('readonly', st => st.getAll())};
   })();
-  const pack = s => ({id:s.id, n:s.n, at:s.at.getTime(), day:s.day, pre:s.pre, post:s.post, nudge:s.nudge, thumb:s.thumb || '', club:s.club || '', note:s.note || '',
+  const pack = s => ({missing:s.missing || [], id:s.id, n:s.n, at:s.at.getTime(), day:s.day, pre:s.pre, post:s.post, nudge:s.nudge, thumb:s.thumb || '', club:s.club || '', note:s.note || '',
     mark:s.mark || '', star:!!s.star, keys:s.keys || null, mot:s.mot || {},
     clips:Object.fromEntries(Object.entries(s.clips).map(([r, c]) => [r, {blob:c.blob, imp:c.imp, fps:c.fps, mime:c.mime, heard:!!c.heard}]))});
   const persist = s => { if (s && s.shown) DB.put(pack(s)).catch(e => toast('Could not save swing: ' + (e && e.name || 'storage error'))); };
   function prune(){
-    const shown = swings.filter(s => s.shown), keep = new Set(shown.slice(-40).map(s => s.id));
+    const shown = swings.filter(s => s.shown), keep = new Set(shown.slice(-30).map(s => s.id));
     const gone = shown.filter(s => !s.star && !keep.has(s.id) && s !== cur && s !== ref);
     for (const s of gone) { DB.del(s.id).catch(() => {}); for (const k in s.clips) URL.revokeObjectURL(s.clips[k].url); }
     if (gone.length) swings = swings.filter(s => !gone.includes(s));
@@ -860,6 +911,7 @@ function startDisp(){
       <div class="small st" style="margin-top:8px">Waiting for phone</div>
       <div class="meter"><i></i><s></s></div>
       <label class="small">Trigger line <span class="tv"></span><input type="range" min="-40" max="0" step="1" data-thr="${r}"></label>
+      <label class="small" style="display:flex;gap:8px;align-items:center;margin-top:4px"><input type="checkbox" data-auto="${r}"> Set it automatically</label>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px"><button data-guide="${r}" style="min-height:38px">Placement guide</button><a></a></div></div></div>`).join('');
   for (const b of document.querySelectorAll('[data-guide]')) b.onclick = () => openGuide(b.dataset.guide, 'disp');
   $('#sGuide').onclick = () => openGuide(null, 'disp');
@@ -869,11 +921,13 @@ function startDisp(){
     try { const qr = qrcode(0, 'L'); qr.addData(u); qr.make(); $('#qr-'+r).innerHTML = qr.createSvgTag(4, 2); }
     catch(e) { $('#qr-'+r).textContent = 'QR unavailable'; }
   }
-  for (const inp of document.querySelectorAll('[data-thr]')) inp.oninput = () => { const r = inp.dataset.thr; thr[r] = +inp.value; sendTo(r, {t:'thr', v:thr[r]}); render(); };
+  for (const inp of document.querySelectorAll('[data-thr]')) inp.oninput = () => { const r = inp.dataset.thr; thr[r] = +inp.value; autoT[r] = false; sendTo(r, {t:'thr', v:thr[r], auto:false}); render(); };
+  for (const cb of document.querySelectorAll('[data-auto]')) cb.onchange = () => { const r = cb.dataset.auto; autoT[r] = cb.checked; sendTo(r, {t:'thr', v:thr[r] != null ? thr[r] : -12, auto:cb.checked}); render(); };
   const sendCfg = () => { for (const r in conns) sendTo(r, {t:'cfg', pre:cfg.pre, post:cfg.post, motion:cfg.motion}); };
   $('#oPre').value = String(cfg.pre); $('#oPost').value = String(cfg.post); $('#oLoop').checked = cfg.loop; $('#oBoth').checked = cfg.both; $('#oMotion').checked = cfg.motion;
   $('#oPre').onchange = $('#oPost').onchange = () => { cfg.pre = +$('#oPre').value; cfg.post = +$('#oPost').value; save(); sendCfg(); };
   $('#oLoop').onchange = () => { cfg.loop = $('#oLoop').checked; save(); };
+  $('#oAfter').value = cfg.after; $('#oAfter').onchange = () => { cfg.after = $('#oAfter').value; save(); streamLive(); };
   $('#oBoth').onchange = () => { cfg.both = $('#oBoth').checked; save(); };
   $('#oMotion').onchange = () => { cfg.motion = $('#oMotion').checked; save(); sendCfg(); };
   $('#iceIn').value = extraIce.length ? JSON.stringify(extraIce) : '';
@@ -888,6 +942,7 @@ function startDisp(){
     wake(); getAC();
     try { const s = await navigator.mediaDevices.getUserMedia({audio:true}); s.getTracks().forEach(t => t.stop()); } catch(e){} /* lets Safari use local Wi-Fi addresses */
     $('#sGo').classList.add('hidden'); $('#sClose').classList.remove('hidden'); $('#setup').classList.add('hidden');
+    if (cfg.after === 'live' && Object.keys(conns).length) setLive(true);
   };
   $('#sClose').onclick = () => $('#setup').classList.add('hidden');
   $('#bSetup').onclick = () => { closeSheets(); $('#setup').classList.remove('hidden'); };
@@ -902,9 +957,12 @@ function startDisp(){
       const d = $('#dt-'+r); d.classList.toggle('ok', on && link[r] !== 'Relay'); d.classList.toggle('relay', on && link[r] === 'Relay');
       d.textContent = SHORT[r] + (on && i && i.fps ? ' ' + i.fps + 'fps' : '');
       out.push(`${SHORT[r]}: ${on ? ['connected', link[r], i && i.fps ? i.fps + ' fps' : ''].filter(Boolean).join(' · ') : 'not connected'}`);
-      if (thr[r] != null) { cd.querySelector('[data-thr]').value = thr[r]; cd.querySelector('.tv').textContent = thr[r] + ' dB'; cd.querySelector('.meter s').style.left = pct(thr[r]) + '%'; }
+      if (thr[r] != null) { cd.querySelector('[data-thr]').value = thr[r]; cd.querySelector('.tv').textContent = thr[r] + ' dB' + (autoT[r] ? ' (auto)' : ''); cd.querySelector('.meter s').style.left = pct(thr[r]) + '%'; }
+      cd.querySelector('[data-auto]').checked = !!autoT[r];
     }
-    $('#moreStat').textContent = out.join('  ·  ') + '  ·  ' + netText;
+    $('#moreStat').innerHTML = ROLES.map(r => { const st = stats[r], on = !!conns[r];
+      const bits = [on ? 'connected' : 'not connected', on && link[r], on && rtt[r] != null && Math.round(rtt[r]) + ' ms', st.rc ? st.rc + ' reconnect' + (st.rc > 1 ? 's' : '') : '', (st.ok + st.late) || st.miss ? `${st.ok + st.late} clips${st.late ? ` (${st.late} late)` : ''}${st.miss ? `, ${st.miss} missing` : ''}` : ''].filter(Boolean);
+      return `<b>${SHORT[r]}</b> ${bits.join(' · ')}`; }).join('<br>') + '<br>' + netText.replace(/[<>&]/g, '');
   }
   function meters(){ for (const r of ROLES) $('#cd-'+r+' .meter i').style.width = (conns[r] && lvl[r] != null ? pct(lvl[r]) : 0) + '%'; }
 
@@ -918,7 +976,10 @@ function startDisp(){
       const r = c.metadata && c.metadata.role; if (!ROLES.includes(r)) { c.close(); return; }
       c.on('open', async () => {
         if (conns[r] && conns[r] !== c) try { conns[r].close(); } catch(e){}
-        conns[r] = c; c.send({t:'cfg', pre:cfg.pre, post:cfg.post, motion:cfg.motion}); if (liveOn) c.send({t:'live', on:true});
+        if (seen[r]) stats[r].rc++;
+        conns[r] = c; seen[r] = now(); c.send({t:'cfg', pre:cfg.pre, post:cfg.post, motion:cfg.motion}); if (wantStream()) c.send({t:'live', on:true});
+        if (cfg.after === 'live' && !playing && !liveOn && $('#setup').classList.contains('hidden')) setLive(true);
+        setTimeout(() => askMissing(r), 1500);
         render(); toast(NAMES[r] + ' camera connected');
         await sleep(1500); if (conns[r] === c) { link[r] = await linkType(c); render(); }
       });
@@ -942,14 +1003,16 @@ function startDisp(){
 
   function onData(r, m){
     if (!m || !m.t) return;
+    seen[r] = now();
     if (m.t === 'pong') rtt[r] = now() - m.a;
     else if (m.t === 'info') { info[r] = m; render(); }
     else if (m.t === 'lvl') { lvl[r] = m.v; meters(); }
-    else if (m.t === 'thr') { thr[r] = m.v; render(); }
+    else if (m.t === 'thr') { thr[r] = m.v; if (m.auto != null) autoT[r] = !!m.auto; render(); }
     else if (m.t === 'hit') onHit(r, m.kind);
-    else if (m.t === 'clip') { if (m.n) inbound[m.id + r] = {m, parts:new Array(m.n), got:0, t0:now()}; }
+    else if (m.t === 'clip') { if (m.n) inbound[m.id + r] = {m, parts:new Array(m.n), got:0, t0:now(), last:now()}; }
     else if (m.t === 'ch') {
       const x = inbound[m.id + r]; if (!x) return;
+      x.last = now();
       if (!x.parts[m.i]) { x.parts[m.i] = m.d; x.got++; }
       if (x.got === x.m.n) { delete inbound[m.id + r]; gotClip(r, x.m, new Blob(x.parts, {type:x.m.mime}), (now() - x.t0)/1000); }
     }
@@ -977,25 +1040,38 @@ function startDisp(){
     s.timer = setTimeout(() => ready(s), cfg.post*1000 + 12000);
   }
   async function gotClip(r, m, blob, secs){
-    const s = swings.find(x => x.id === m.id); if (!s) return;
+    const s = swings.find(x => x.id === m.id); if (!s || s.clips[r]) return;
     const imp = m.heard ? await refine(blob, m.est) : m.est;
     s.clips[r] = {blob, url:URL.createObjectURL(blob), imp, fps:m.fps || 60, mime:m.mime, heard:!!m.heard, secs};
     if (m.mot) s.mot[r] = m.mot;
-    if (s.expect.every(k => s.clips[k])) ready(s);
+    if (!s.shown) { stats[r].ok++; if (s.expect.every(k => s.clips[k])) ready(s); return; }
+    stats[r].late++; if (s.missing && s.missing.includes(r)) { s.missing = s.missing.filter(x => x !== r); stats[r].miss = Math.max(0, stats[r].miss - 1); }
+    try { s.keys = computeKeys(Object.values(s.mot)); } catch(e){}
+    s.thumb = ''; delete s.thumb; persist(s); render();
+    toast(`${SHORT[r]} video for swing ${s.n} arrived`);
+    if (cur === s && mode === 'normal' && !exporting) load(s, playing);
   }
   function ready(s){
     if (s.shown) return; clearTimeout(s.timer);
     if (!Object.keys(s.clips).length) { toast(`Swing ${s.n}: no video arrived`); swings = swings.filter(x => x !== s); return; }
     s.shown = true;
     try { s.keys = computeKeys(Object.values(s.mot)); } catch(e) { s.keys = null; }
-    const miss = s.expect.filter(r => !s.clips[r]).map(r => SHORT[r]);
-    if (miss.length) toast(`Swing ${s.n}: ${miss.join(', ')} clip missing`);
-    countSw(); persist(s); prune();
+    s.missing = s.expect.filter(r => !s.clips[r]);
+    for (const r of s.missing) { stats[r].miss++; if (conns[r]) setTimeout(() => askMissing(r), 500); }
+    if (s.missing.length) toast(`Swing ${s.n}: still waiting for ${s.missing.map(r => SHORT[r]).join(', ')} video`);
+    render();
+    countSw(); persist(s); prune(); renderStrip();
     if (cfg.upClips) for (const r in s.clips) driveQueue(s.clips[r].blob, `swing-${s.n}-${SHORT[r]}.${ext(s.clips[r].mime)}`, s.day);
     if (exporting) return;
     setLive(false);
     if (mode !== 'normal') setMode('normal', true);
+    autoOnce = cfg.after === 'live';
     load(s, true);
+  }
+
+  function askMissing(r){
+    const ids = swings.filter(s => s.shown && s.missing && s.missing.includes(r) && Date.now() - s.at.getTime() < 15*60*1000 && !inbound[s.id + r]).map(s => s.id).slice(-6);
+    if (ids.length) sendTo(r, {t:'resend', ids});
   }
 
   /* ---------- precise sync: impact transient in each clip's own audio ---------- */
@@ -1033,13 +1109,21 @@ function startDisp(){
   const cardHTML = (s, extra) => `<button class="sw${extra || ''}" data-id="${s.id}">${s.thumb ? `<img src="${s.thumb}" alt="">` : '<div class="ph"></div>'}
     <span><b>${s.star ? '★ ' : ''}Swing ${s.n}</b>${s.club ? ' · ' + s.club : ''}${s.mark ? ` <i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}<br><small>${s.at.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}${s.keys && s.keys.ok ? ' · tempo ' + s.keys.ratio.toFixed(1) + ':1' : ''}</small></span></button>`;
   function dayLabel(d){ if (d === today) return 'Today'; const [y, m, dd] = d.split('-').map(Number); return new Date(y, m-1, dd).toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'}); }
+  function renderStrip(){
+    const list = swings.filter(s => s.shown).slice(-10).reverse();
+    $('#stLive').classList.toggle('on', liveOn);
+    $('#stList').innerHTML = list.map(s => `<button class="st${cur === s && !liveOn ? ' cur' : ''}" data-id="${s.id}" aria-label="Swing ${s.n}">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="ph2">Loading…</span>`}<span>${s.star ? '★ ' : ''}${s.n}${s.club ? ' · ' + s.club : ''}</span>${s.mark ? `<i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}</button>`).join('');
+    for (const b of $('#stList').querySelectorAll('.st')) b.onclick = () => { const s = swings.find(x => x.id === b.dataset.id); if (!s) return; autoOnce = false; setLive(false); load(s, true); };
+  }
+  $('#stLive').onclick = () => { if (!liveOn && !Object.keys(conns).length) return toast('No cameras connected'); setLive(!liveOn); };
   function renderHist(){
+    renderStrip();
     renderTags();
     const list = swings.filter(s => s.shown).slice().reverse();
     if (!list.length) { $('#sgrid').innerHTML = '<p class="small" style="margin:0">No swings yet. Hit a ball, or use Capture now in the ⋯ menu.</p>'; return; }
     const days = [...new Set(list.map(s => s.day))];
     $('#sgrid').innerHTML = days.map(d => `<h4>${dayLabel(d)}</h4><div class="sgrid">${list.filter(s => s.day === d).map(s => cardHTML(s, cur === s ? ' cur' : '')).join('')}</div>`).join('');
-    for (const b of $('#sgrid').querySelectorAll('.sw')) b.onclick = () => { const s = swings.find(x => x.id === b.dataset.id); if (s) { setLive(false); load(s, true); renderHist(); } };
+    for (const b of $('#sgrid').querySelectorAll('.sw')) b.onclick = () => { const s = swings.find(x => x.id === b.dataset.id); if (s) { autoOnce = false; setLive(false); load(s, true); renderHist(); } };
   }
 
   /* ---------- compare ---------- */
@@ -1067,12 +1151,13 @@ function startDisp(){
   }
 
   /* ---------- live view ---------- */
+  const wantStream = () => liveOn || cfg.after === 'live';
+  function streamLive(){ for (const r in conns) sendTo(r, {t:'live', on:wantStream()}); }
   function setLive(on){
     if (on && mode !== 'normal') setMode('normal');
     liveOn = on; $('#bLive').classList.toggle('on', on); $('#stage').classList.toggle('liveon', on);
-    for (const r in conns) sendTo(r, {t:'live', on});
-    if (on) pause();
-    keysUI();
+    if (on) { autoOnce = false; pause(); }
+    streamLive(); keysUI(); renderStrip();
   }
   $('#bLive').onclick = () => setLive(!liveOn);
 
@@ -1105,7 +1190,7 @@ function startDisp(){
     G.style.opacity = cfg.ghostA;
     redraw();
   }
-  async function load(s, auto){ cur = s; if (mode !== 'normal' && (!ref || ref === s || !s.clips[cfg.cmpA])) mode = 'normal'; $('#bCmp').classList.toggle('on', mode !== 'normal'); await applyTracks(auto); }
+  async function load(s, auto){ if (s !== cur) autoOnce = autoOnce && auto; cur = s; if (mode !== 'normal' && (!ref || ref === s || !s.clips[cfg.cmpA])) mode = 'normal'; $('#bCmp').classList.toggle('on', mode !== 'normal'); await applyTracks(auto); }
   async function applyTracks(auto){
     clearTimeout(holdT); pause();
     T = tracks(); const my = ++loadSeq, used = new Set(T.map(t => t.v));
@@ -1138,6 +1223,7 @@ function startDisp(){
       const rel = relNow();
       if (rel >= range[1] - 0.005 || T[0].v.ended) {
         if (exporting) { pause(); if (onEnd) onEnd(); }
+        else if (autoOnce) { autoOnce = false; pause(); if (Object.keys(conns).length) setLive(true); }
         else if (cfg.loop) { pause(); holdT = setTimeout(() => { seek(range[0]); play(); }, 700); }
         else pause();
       } else {
@@ -1167,16 +1253,16 @@ function startDisp(){
     $('#tempo').title = `Backswing ${k.back.toFixed(2)} s · downswing ${k.down.toFixed(2)} s`;
     $('#ticks').innerHTML = ['address','top','finish'].filter(x => k[x] != null).map(x => { const p = posPct(k[x]); return p > 0 && p < 1 ? `<i style="left:calc(${p*100}% + ${(0.5 - p)*16}px)"></i>` : ''; }).join('');
   }
-  for (const [key] of KEYS) $(`#keys [data-k="${key}"]`).onclick = () => { if (!cur || !cur.keys) return; pause(); seek(key === 'impact' ? 0 : cur.keys[key]); };
+  for (const [key] of KEYS) $(`#keys [data-k="${key}"]`).onclick = () => { autoOnce = false; if (!cur || !cur.keys) return; pause(); seek(key === 'impact' ? 0 : cur.keys[key]); };
   $('#tempo').onclick = () => { if (cur && cur.keys && cur.keys.ok) toast(`Backswing ${cur.keys.back.toFixed(2)} s · downswing ${cur.keys.down.toFixed(2)} s (tour average about 3 : 1)`); };
 
   /* ---------- controls ---------- */
   const setRate = r => { rate = r; cfg.speed = r; save(); for (const b of document.querySelectorAll('#speeds button')) b.classList.toggle('on', +b.dataset.r === r); if (playing) for (const t of T) t.v.playbackRate = r; };
   for (const b of document.querySelectorAll('#speeds button')) b.onclick = () => setRate(+b.dataset.r);
-  $('#bPlay').onclick = () => { if (playing) return pause(); if (T.length && relNow() >= range[1] - 0.02) seek(range[0]); play(); };
-  const step = d => { if (!T.length) return; if (liveOn) setLive(false); pause(); seek(relNow() + d/fps()); };
+  $('#bPlay').onclick = () => { autoOnce = false; if (playing) return pause(); if (T.length && relNow() >= range[1] - 0.02) seek(range[0]); play(); };
+  const step = d => { autoOnce = false; if (!T.length) return; if (liveOn) setLive(false); pause(); seek(relNow() + d/fps()); };
   $('#bPrev').onclick = () => step(-1); $('#bNext').onclick = () => step(1);
-  $('#scrub').oninput = () => { if (!T.length) return; if (liveOn) setLive(false); pause(); seek(range[0] + (+$('#scrub').value/1000) * (range[1] - range[0])); };
+  $('#scrub').oninput = () => { autoOnce = false; if (!T.length) return; if (liveOn) setLive(false); pause(); seek(range[0] + (+$('#scrub').value/1000) * (range[1] - range[0])); };
   const nudge = d => { if (!T.length || mode !== 'normal') return; const rel = relNow(); cur.nudge += d; T = tracks(); $('#nVal').textContent = fmtN(cur.nudge); seek(rel); persist(cur); };
   $('#nMinus').onclick = () => nudge(-1); $('#nPlus').onclick = () => nudge(1);
   $('#bCap').onclick = () => { closeSheets(); trigger(); };
@@ -1218,7 +1304,7 @@ function startDisp(){
       const L = layout(), c = document.createElement('canvas'); c.width = 320; c.height = 180; const g = c.getContext('2d');
       g.fillStyle = '#000'; g.fillRect(0, 0, 320, 180);
       L.forEach((P, i) => drawPane(g, P, i*320/L.length, 0, 320/L.length, 180, false));
-      s.thumb = c.toDataURL('image/jpeg', 0.7); persist(s);
+      s.thumb = c.toDataURL('image/jpeg', 0.7); persist(s); renderStrip();
     } catch(e) { s.thumb = ''; }
   }
 
@@ -1379,7 +1465,15 @@ function startDisp(){
   dStat(cfg.gid ? 'Google Drive: tap Connect to sign in' : 'Google Drive upload is off');
   requestAnimationFrame(tick);
   openPeer();
-  setInterval(() => { for (const r in conns) sendTo(r, {t:'ping', a:now()}); }, 2000);
+  setInterval(() => {
+    const t = now();
+    for (const r in conns) {
+      sendTo(r, {t:'ping', a:t});
+      if (seen[r] && t - seen[r] > 9000) { const c = conns[r]; delete conns[r]; delete link[r]; try { c.close(); } catch(e){} render(); meters(); toast(`${NAMES[r]} camera stopped responding, waiting for it to reconnect`); }
+    }
+    for (const k in inbound) { const x = inbound[k]; if (t - x.last > 8000) { delete inbound[k]; const r = k.slice(x.m.id.length); if (conns[r]) sendTo(r, {t:'resend', ids:[x.m.id]}); } }
+  }, 2000);
+  setInterval(() => { for (const r in conns) askMissing(r); }, 10000);
   restore();
 }
 
