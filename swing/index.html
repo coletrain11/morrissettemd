@@ -372,6 +372,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
   </div>
 
   <div id="shSwings" class="sheet hidden">
+    <div class="row"><h3 style="flex:1">Swings</h3><button id="bSess">Export session…</button></div>
     <div id="tagBox" class="tagbox hidden">
       <div class="row"><h3 id="tTitle" style="flex:1"></h3><button id="tStar">☆ Star</button></div>
       <div class="row"><select id="tClub" aria-label="Club" style="flex:1"></select><div class="seg"><button id="tGood">Good</button><button id="tMiss">Miss</button></div></div>
@@ -399,6 +400,22 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
     <div class="small" id="moreStat"></div>
     <div class="small" id="driveLine" style="cursor:pointer"></div>
     <button id="bSetup">Setup, cameras &amp; network</button>
+  </div>
+
+  <div id="sxModal" class="modal hidden">
+    <div class="mbox">
+      <div class="row"><h2 style="flex:1">Export session</h2><button id="sxClose" class="ib" aria-label="Close">✕</button></div>
+      <div id="sxOpts" style="display:grid;gap:14px">
+        <div class="row"><span class="lab">Swings</span><div class="seg" id="sxWhich"><button data-w="today">Today</button><button data-w="star">Starred</button><button data-w="all">All saved</button></div></div>
+        <div class="row"><span class="lab">Format</span><div class="seg" id="sxFmt"><button data-f="zip">All clips (.zip)</button><button data-f="reel">One video</button></div></div>
+        <div class="row" id="sxSpdRow"><span class="lab">Video speed</span><div class="seg" id="sxSpd"><button data-x="1">1×</button><button data-x="0.5">½×</button></div></div>
+        <p class="small" id="sxInfo" style="margin:0"></p>
+        <button class="pri" id="sxGo" style="min-height:54px;font-size:18px">Export</button>
+      </div>
+      <canvas id="sxCanvas" class="hidden" style="width:100%;height:auto;background:#000;border-radius:10px;display:block"></canvas>
+      <div id="sxRun" class="hidden" style="display:grid;gap:8px"><div class="prog"><i id="sxBar"></i></div><span class="small" id="sxMsg"></span><button id="sxStop" style="justify-self:start">Stop here and keep what's recorded</button></div>
+      <div id="sxDone" class="hidden" style="display:grid;gap:10px"><p id="sxDoneMsg" style="margin:0"></p><div class="row"><button class="pri" id="sxShare" style="min-height:52px;flex:1 1 200px">Save / Share</button><button id="sxDl" style="min-height:52px">Download</button><button id="sxAgain" style="min-height:52px">New export</button></div></div>
+    </div>
   </div>
 
   <div id="xModal" class="modal hidden">
@@ -1449,6 +1466,123 @@ function startDisp(){
   };
   $('#xShare').onclick = async () => { try { await navigator.share({files:[xFile], title:xFile.name}); } catch(e){} };
   $('#xDl').onclick = () => { if (xUrl) dl(xUrl, xFile.name); };
+
+  /* ---------- export a whole session: every clip in a zip, or one back-to-back video ---------- */
+  const sx = {which:'today', fmt:'zip', spd:1, file:null, url:null, stop:false};
+  const sxList = () => swings.filter(s => s.shown && (sx.which === 'all' || (sx.which === 'star' ? s.star : s.day === today)));
+  const sxLabel = () => sx.which === 'star' ? 'starred' : sx.which === 'all' ? 'all' : today;
+  function sxSet(){
+    for (const b of document.querySelectorAll('#sxWhich button')) b.classList.toggle('on', b.dataset.w === sx.which);
+    for (const b of document.querySelectorAll('#sxFmt button')) b.classList.toggle('on', b.dataset.f === sx.fmt);
+    for (const b of document.querySelectorAll('#sxSpd button')) b.classList.toggle('on', +b.dataset.x === sx.spd);
+    $('#sxSpdRow').classList.toggle('hidden', sx.fmt !== 'reel');
+    const L = sxList(), mb = L.reduce((a, s) => a + Object.values(s.clips).reduce((b, c) => b + (c.blob ? c.blob.size : 0), 0), 0) / 1e6;
+    const mins = Math.max(1, Math.ceil(L.reduce((a, s) => a + ((s.pre || cfg.pre) + (s.post || cfg.post)) / sx.spd + 1.3, 0) / 60));
+    $('#sxInfo').textContent = !L.length ? 'No swings in this group yet.' : sx.fmt === 'zip'
+      ? `${L.length} swing${L.length > 1 ? 's' : ''}, both angles, about ${Math.max(1, Math.round(mb))} MB, plus a spreadsheet (swings.csv) of clubs, ratings, stars, notes and tempo.`
+      : `${L.length} swing${L.length > 1 ? 's' : ''} back to back, both angles side by side, each with a title card. Takes about ${mins} min to make; it plays on screen while it records.`;
+    $('#sxGo').disabled = !L.length;
+  }
+  for (const b of document.querySelectorAll('#sxWhich button')) b.onclick = () => { sx.which = b.dataset.w; sxSet(); };
+  for (const b of document.querySelectorAll('#sxFmt button')) b.onclick = () => { sx.fmt = b.dataset.f; sxSet(); };
+  for (const b of document.querySelectorAll('#sxSpd button')) b.onclick = () => { sx.spd = +b.dataset.x; sxSet(); };
+  function sxReset(){
+    $('#sxOpts').classList.remove('hidden'); $('#sxRun').classList.add('hidden'); $('#sxDone').classList.add('hidden'); $('#sxCanvas').classList.add('hidden');
+    $('#sxBar').style.width = '0%';
+    if (sx.url) { URL.revokeObjectURL(sx.url); sx.url = null; sx.file = null; }
+    sxSet();
+  }
+  $('#bSess').onclick = () => { closeSheets(); sxReset(); $('#sxModal').classList.remove('hidden'); };
+  $('#sxClose').onclick = () => { if (exporting) return toast('Stop the export first'); $('#sxModal').classList.add('hidden'); sxReset(); };
+  $('#sxAgain').onclick = sxReset;
+  $('#sxStop').onclick = () => { sx.stop = true; if (onEnd) onEnd(); };
+  $('#sxGo').onclick = async () => {
+    const L = sxList().slice().sort((a, b) => a.at - b.at); if (!L.length || exporting) return;
+    $('#sxOpts').classList.add('hidden'); $('#sxRun').classList.remove('hidden'); $('#sxStop').classList.toggle('hidden', sx.fmt !== 'reel'); sx.stop = false;
+    try {
+      const f = sx.fmt === 'zip' ? await sxZip(L) : await sxReel(L);
+      if (!f) return sxReset();
+      sx.file = f; sx.url = URL.createObjectURL(f);
+      $('#sxRun').classList.add('hidden'); $('#sxDone').classList.remove('hidden');
+      $('#sxDoneMsg').textContent = `${f.name} · ${(f.size/1e6).toFixed(1)} MB`;
+      $('#sxShare').classList.toggle('hidden', !(navigator.canShare && navigator.canShare({files:[f]})));
+      if (cfg.gid && cfg.upX) driveQueue(f, f.name, today);
+    } catch(e) { exporting = false; xDraw = null; $('#sxMsg').textContent = 'Export failed: ' + (e && e.message || e); }
+  };
+  $('#sxShare').onclick = async () => { try { await navigator.share({files:[sx.file], title:sx.file.name}); } catch(e){} };
+  $('#sxDl').onclick = () => { if (sx.url) dl(sx.url, sx.file.name); };
+  const csvCell = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const fname = s => `${s.day}-swing-${String(s.n).padStart(3, '0')}${s.club ? '-' + s.club : ''}`;
+  async function sxZip(L){
+    $('#sxMsg').textContent = 'Loading the zip tool…';
+    if (!window.JSZip) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'; sc.onload = res; sc.onerror = () => rej(new Error('could not load the zip tool (no internet?)')); document.head.appendChild(sc); });
+    const zip = new JSZip(), rows = [['Swing','Date','Time','Club','Rating','Starred','Tempo','Backswing (s)','Downswing (s)','Note','DTL file','FO file']];
+    for (const s of L) {
+      const files = {};
+      for (const r of ROLES) if (s.clips[r] && s.clips[r].blob) { const n = `${fname(s)}-${SHORT[r]}.${ext(s.clips[r].mime)}`; zip.file(n, s.clips[r].blob); files[r] = n; }
+      const k = s.keys && s.keys.ok ? s.keys : null;
+      rows.push([s.n, s.day, s.at.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}), s.club || '', s.mark === 'good' ? 'Good' : s.mark === 'miss' ? 'Miss' : '', s.star ? 'yes' : '',
+        k ? k.ratio.toFixed(1) + ':1' : '', k ? k.back.toFixed(2) : '', k ? k.down.toFixed(2) : '', s.note || '', files.side || '', files.front || '']);
+    }
+    zip.file('swings.csv', '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'));
+    const blob = await zip.generateAsync({type:'blob', compression:'STORE'}, m => { $('#sxBar').style.width = m.percent + '%'; $('#sxMsg').textContent = `Packing ${Math.round(m.percent)}%`; });
+    return new File([blob], `swing-cam-${sxLabel()}.zip`, {type:'application/zip'});
+  }
+  async function sxReel(L){
+    if (liveOn) setLive(false); if (mode !== 'normal') setMode('normal', true);
+    const vb = $('#vw-side').getBoundingClientRect(), H = 1080, PW = Math.round(H * (vb.width / vb.height) / 2) * 2, GAP = 8, W = PW*2 + GAP;
+    const cv = $('#sxCanvas'); cv.width = W; cv.height = H; cv.classList.remove('hidden');
+    const g = cv.getContext('2d'), fs = Math.round(H/26), spd = sx.spd === 1 ? '1×' : '½×';
+    let card = null, s = null;
+    const font = (w, k) => `${w} ${Math.round(fs*k)}px Barlow, system-ui, sans-serif`;
+    xDraw = () => {
+      g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+      if (card) {
+        g.fillStyle = '#0b0f0d'; g.fillRect(0, 0, W, H); g.textAlign = 'center';
+        g.fillStyle = '#fff'; g.font = font(700, 2.4); g.fillText(card[0], W/2, H/2 - fs*0.4);
+        g.fillStyle = '#ffd84d'; g.font = font(600, 1.1); g.fillText(card[1], W/2, H/2 + fs*1.4);
+        g.textAlign = 'left'; return;
+      }
+      ROLES.forEach((r, i) => {
+        const x = i*(PW + GAP);
+        if (s && s.clips[r]) drawPane(g, {draws:[{v:V[r], role:r, a:1}], lr:r}, x, 0, PW, H, false);
+        else { g.fillStyle = '#111'; g.fillRect(x, 0, PW, H); g.fillStyle = '#777'; g.font = font(600, 1); g.fillText(`No ${SHORT[r]} video for this swing`, x + fs, H/2); }
+        g.font = font(700, 1); const tw = g.measureText(SHORT[r]).width;
+        g.fillStyle = '#000b'; g.fillRect(x + fs*0.7, fs*0.7, tw + fs*0.9, fs*1.5); g.fillStyle = '#fff'; g.fillText(SHORT[r], x + fs*1.15, fs*1.82);
+      });
+      if (s && T.length) {
+        const rel = relNow(), p = Math.max(0, Math.min(1, posPct(rel)));
+        g.fillStyle = '#ffffff33'; g.fillRect(0, H - 8, W, 8); g.fillStyle = '#ffd84d'; g.fillRect(0, H - 8, W*p, 8);
+        g.font = font(600, 0.85); g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 8;
+        g.fillText([`Swing ${s.n}`, s.club, `${spd} speed`].filter(Boolean).join(' · '), fs*0.8, H - fs*0.9);
+        const tt = fmtT(rel); g.fillText(tt, W - fs*0.8 - g.measureText(tt).width, H - fs*0.9); g.shadowBlur = 0;
+      }
+    };
+    const mime = pickMime(), chunks = [];
+    const rec = new MediaRecorder(cv.captureStream(60), {...(mime ? {mimeType:mime} : {}), videoBitsPerSecond:10e6});
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const stopped = new Promise(res => rec.onstop = res);
+    exporting = true; xRate = sx.spd; rec.start();
+    try {
+      for (let i = 0; i < L.length && !sx.stop; i++) {
+        s = L[i]; const k = s.keys && s.keys.ok ? s.keys : null;
+        card = [[`Swing ${s.n}`, s.club].filter(Boolean).join(' · '), [s.at.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}), s.star ? '★ Starred' : '', s.mark === 'good' ? 'Good' : s.mark === 'miss' ? 'Miss' : '', k ? `Tempo ${k.ratio.toFixed(1)} : 1` : '', s.note].filter(Boolean).join('   ·   ')];
+        $('#sxMsg').textContent = `Recording swing ${i + 1} of ${L.length}…`; $('#sxBar').style.width = (i / L.length * 100) + '%';
+        await load(s, false); pause(); seek(range[0]); await Promise.all(T.map(t => seeked(t.v)));
+        await sleep(1100); card = null;
+        if (sx.stop) break;
+        await new Promise(res => { onEnd = res; play(); });
+        onEnd = null; await sleep(120);
+      }
+    } finally {
+      xDraw(); await sleep(200); rec.stop(); await stopped;
+      exporting = false; xDraw = null; onEnd = null; cv.classList.add('hidden'); pause();
+    }
+    $('#sxBar').style.width = '100%';
+    if (!chunks.length) return null;
+    const type = chunks[0].type || mime || 'video/mp4';
+    return new File([new Blob(chunks, {type})], `swing-cam-${sxLabel()}-session.${ext(type)}`, {type});
+  }
 
   /* ---------- Google Drive upload (optional; needs your own OAuth client ID) ---------- */
   let gTok = null, gExp = 0, tokenClient = null, upQ = [], upBusy = false, upDone = 0;
