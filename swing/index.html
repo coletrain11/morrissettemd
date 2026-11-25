@@ -117,7 +117,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 .liveon .view video.lv{display:block}
 .view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;touch-action:none}
 .drawing .view canvas{pointer-events:auto;cursor:crosshair}
-.vlab{position:absolute;left:12px;top:12px;background:#000b;padding:5px 12px;border-radius:9px;font-weight:700;letter-spacing:.02em}
+.vlab{position:absolute;left:12px;top:12px;background:#0b0f0d;padding:5px 12px;border-radius:9px;font-weight:700;letter-spacing:.02em}
 .livetag{display:none;position:absolute;right:12px;top:12px;background:var(--red);color:#fff;font-weight:700;padding:4px 11px;border-radius:9px}
 .liveon .livetag{display:block}
 .drawtag{display:none;position:absolute;right:12px;bottom:12px;background:var(--ball);color:#1b1600;font-weight:700;padding:4px 11px;border-radius:9px}
@@ -459,6 +459,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
     </div>
   </div>
   <div id="toast"></div>
+  <div id="thumbBox" style="position:fixed;left:0;top:0;width:4px;height:4px;opacity:.01;overflow:hidden;pointer-events:none"></div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
@@ -557,7 +558,7 @@ function startCam(role, room){
     });
   }
   let thr = ls.get('thr-'+role, -12), pre = 3, post = 2, hd = ls.get('hd', false), sent = 0, motionOn = false, autoThr = ls.get('auto-'+role, true), lastPing = now();
-  const sentClips = [];
+  const sentClips = []; let liveWanted = false, uploading = 0;
   let peer = null, conn = null, stream = null, mime = '', info = {}, retryT = 0, liveCall = null;
   const setQ = v => { hd = v; ls.set('hd', v); $('#q720').classList.toggle('on', !v); $('#q1080').classList.toggle('on', v); };
   setQ(hd); $('#q720').onclick = () => setQ(false); $('#q1080').onclick = () => setQ(true);
@@ -602,7 +603,7 @@ function startCam(role, room){
     else if (m.t === 'thr') { setThr(m.v); if (m.auto != null) setAuto(!!m.auto); }
     else if (m.t === 'resend') { for (const id of m.ids || []) { const it = sentClips.find(x => x.meta.id === id); if (it) sendClip(it); } }
     else if (m.t === 'cap') capture(m.id, +m.lat || 0);
-    else if (m.t === 'live') m.on ? startLive() : stopLive();
+    else if (m.t === 'live') { liveWanted = !!m.on; (m.on && !uploading) ? startLive() : stopLive(); }
   }
   setInterval(() => {
     if (conn && conn.open && now() - lastPing > 8000) { const c = conn; conn = null; try { c.close(); } catch(e){} stat('Connection stalled, reconnecting…'); retry(300); }
@@ -612,7 +613,7 @@ function startCam(role, room){
     try {
       liveCall = peer.call(PREFIX + room, new MediaStream(stream.getVideoTracks()), {metadata:{role}});
       const lc = liveCall; lc.on('close', () => { if (liveCall === lc) liveCall = null; }); lc.on('error', () => {});
-      const cap = async () => { try { for (const snd of lc.peerConnection.getSenders()) { if (!snd.track || snd.track.kind !== 'video') continue; const pp = snd.getParameters(); pp.encodings = (pp.encodings && pp.encodings.length ? pp.encodings : [{}]).map(e => ({...e, maxBitrate:900000, scaleResolutionDownBy:2})); await snd.setParameters(pp); } } catch(e){} };
+      const cap = async () => { try { for (const snd of lc.peerConnection.getSenders()) { if (!snd.track || snd.track.kind !== 'video') continue; const pp = snd.getParameters(); pp.encodings = (pp.encodings && pp.encodings.length ? pp.encodings : [{}]).map(e => ({...e, maxBitrate:600000, scaleResolutionDownBy:2})); await snd.setParameters(pp); } } catch(e){} };
       setTimeout(cap, 1500); setTimeout(cap, 4000);
     } catch(e) { liveCall = null; }
   }
@@ -643,9 +644,9 @@ function startCam(role, room){
   /* automatic trigger line: well above the loudest background noise, comfortably below your recent hits */
   function autoTune(){
     const v = noise.map(x => x[1]).sort((a, b) => a - b), n95 = v[Math.floor(v.length*0.95)];
-    let target = n95 + 12;
-    if (hitsDb.length >= 2) { const h = hitsDb.slice().sort((a, b) => a - b), med = h[Math.floor(h.length/2)]; target = Math.min(target, med - 8); }
-    target = Math.round(Math.max(n95 + 6, Math.min(-3, Math.max(-40, target))));
+    let target = n95 + 15;
+    if (hitsDb.length >= 3) { const h = hitsDb.slice().sort((a, b) => a - b), med = h[Math.floor(h.length/2)]; target = Math.max(target, Math.min(med - 10, -6)); }
+    target = Math.round(Math.min(-3, Math.max(-40, target)));
     if (Math.abs(target - thr) >= 1) { setThr(target); send({t:'thr', v:thr, auto:true}); }
   }
   function startAudio(){
@@ -658,7 +659,9 @@ function startCam(role, room){
       const t = now(), d = dB(m);
       hist.push([t, d]); while (hist.length && hist[0][0] < t - 3000) hist.shift();
       peakSince = Math.max(peakSince, d); shown = Math.max(d, shown - 1.2);
-      if (d >= thr && t - lastHit > 2500) { lastHit = t; hitPk = d; send({t:'hit', v:Math.round(d), kind:'sound'}); }
+      let bg = 0, bn = 0; for (let i = hist.length - 2; i >= 0 && hist[i][0] > t - 320; i--) { if (hist[i][0] < t - 40) { bg += Math.pow(10, hist[i][1]/20); bn++; } }
+      const sharp = !bn || d - dB(bg/bn) >= 14;
+      if (d >= thr && sharp && t - lastHit > 2500) { lastHit = t; hitPk = d; send({t:'hit', v:Math.round(d), kind:'sound'}); }
       if (t - lastHit < 200) hitPk = Math.max(hitPk, d);
       else if (hitPk > -99) { hitsDb.push(hitPk); if (hitsDb.length > 12) hitsDb.shift(); hitPk = -99; }
       if (t - lastSend > 200) {
@@ -706,10 +709,10 @@ function startCam(role, room){
 
   /* rolling buffer: overlapping recorders, so one always started >= `pre` s before any moment */
   let recs = [], overlapFailed = false;
-  const period = () => Math.max(2, pre) * 1000;
+  const period = () => Math.max(2, pre*0.67) * 1000;
   function spawn(){
     let mr;
-    try { mr = new MediaRecorder(stream, {...(mime ? {mimeType:mime} : {}), videoBitsPerSecond: hd ? 10e6 : 6e6}); mr.start(); }
+    try { mr = new MediaRecorder(stream, {...(mime ? {mimeType:mime} : {}), videoBitsPerSecond: hd ? 7e6 : 4e6}); mr.start(); }
     catch(e) { if (recs.length) overlapFailed = true; else stat('Recorder error: ' + e.message); return; }
     const r = {mr, start:now(), chunks:[], keep:false};
     mr.ondataavailable = e => { if (e.data && e.data.size) r.chunks.push(e.data); };
@@ -757,6 +760,7 @@ function startCam(role, room){
   async function sendClip(it){
     if (it.busy) return; it.busy = true;
     const c = conn;
+    uploading++; stopLive();
     try {
       if (!(c && c.open)) return;
       c.send(it.meta);
@@ -767,7 +771,7 @@ function startCam(role, room){
         c.send({t:'ch', id:it.meta.id, i, d:it.ab.slice(i*it.CH, (i+1)*it.CH)});
       }
       if (!it.done) { it.done = true; $('#csent').textContent = `· ${++sent} swing${sent > 1 ? 's' : ''} sent`; }
-    } catch(e) {} finally { it.busy = false; }
+    } catch(e) {} finally { it.busy = false; uploading--; if (!uploading && liveWanted) setTimeout(() => { if (!uploading && liveWanted) startLive(); }, 300); }
   }
 }
 
@@ -877,6 +881,7 @@ function startDisp(){
     }
     seq = Math.max(0, ...swings.filter(s => s.day === today).map(s => s.n));
     countSw(); renderHist();
+    for (const s of swings.slice(-10)) if (!s.thumb) queueThumb(s);
     const last = swings[swings.length - 1];
     if (last && !cur) { load(last, false); toast(`Restored ${swings.length} saved swing${swings.length > 1 ? 's' : ''}`); }
     prune();
@@ -1047,7 +1052,7 @@ function startDisp(){
     if (!s.shown) { stats[r].ok++; if (s.expect.every(k => s.clips[k])) ready(s); return; }
     stats[r].late++; if (s.missing && s.missing.includes(r)) { s.missing = s.missing.filter(x => x !== r); stats[r].miss = Math.max(0, stats[r].miss - 1); }
     try { s.keys = computeKeys(Object.values(s.mot)); } catch(e){}
-    s.thumb = ''; delete s.thumb; persist(s); render();
+    s.thumb = ''; delete s.thumb; persist(s); render(); if (cur !== s) queueThumb(s);
     toast(`${SHORT[r]} video for swing ${s.n} arrived`);
     if (cur === s && mode === 'normal' && !exporting) load(s, playing);
   }
@@ -1060,7 +1065,7 @@ function startDisp(){
     for (const r of s.missing) { stats[r].miss++; if (conns[r]) setTimeout(() => askMissing(r), 500); }
     if (s.missing.length) toast(`Swing ${s.n}: still waiting for ${s.missing.map(r => SHORT[r]).join(', ')} video`);
     render();
-    countSw(); persist(s); prune(); renderStrip();
+    countSw(); persist(s); prune(); renderStrip(); setTimeout(() => queueThumb(s), 2500);
     if (cfg.upClips) for (const r in s.clips) driveQueue(s.clips[r].blob, `swing-${s.n}-${SHORT[r]}.${ext(s.clips[r].mime)}`, s.day);
     if (exporting) return;
     setLive(false);
@@ -1112,7 +1117,7 @@ function startDisp(){
   function renderStrip(){
     const list = swings.filter(s => s.shown).slice(-10).reverse();
     $('#stLive').classList.toggle('on', liveOn);
-    $('#stList').innerHTML = list.map(s => `<button class="st${cur === s && !liveOn ? ' cur' : ''}" data-id="${s.id}" aria-label="Swing ${s.n}">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="ph2">Loading…</span>`}<span>${s.star ? '★ ' : ''}${s.n}${s.club ? ' · ' + s.club : ''}</span>${s.mark ? `<i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}</button>`).join('');
+    $('#stList').innerHTML = list.map(s => `<button class="st${cur === s && !liveOn ? ' cur' : ''}" data-id="${s.id}" aria-label="Swing ${s.n}">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="ph2">Swing ${s.n}</span>`}<span>${s.star ? '★ ' : ''}${s.n}${s.club ? ' · ' + s.club : ''}</span>${s.mark ? `<i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}</button>`).join('');
     for (const b of $('#stList').querySelectorAll('.st')) b.onclick = () => { const s = swings.find(x => x.id === b.dataset.id); if (!s) return; autoOnce = false; setLive(false); load(s, true); };
   }
   $('#stLive').onclick = () => { if (!liveOn && !Object.keys(conns).length) return toast('No cameras connected'); setLive(!liveOn); };
@@ -1298,6 +1303,28 @@ function startDisp(){
       for (const [a, b] of lines[P.lr]) { g.beginPath(); g.moveTo(x + a[0]*w, y + a[1]*h); g.lineTo(x + b[0]*w, y + b[1]*h); g.stroke(); }
       g.restore();
     }
+  }
+  /* thumbnails for every swing, made off-screen so a swing that was never opened still gets one */
+  const thumbQ = []; let thumbBusy = false;
+  function queueThumb(s){ if (s && !s.thumb && !thumbQ.includes(s)) { thumbQ.push(s); pumpThumbs(); } }
+  async function pumpThumbs(){
+    if (thumbBusy) return; thumbBusy = true;
+    while (thumbQ.length) { const s = thumbQ.shift(); if (s.thumb || !swings.includes(s)) continue; try { await thumbOff(s); } catch(e){} await sleep(50); }
+    thumbBusy = false;
+  }
+  async function thumbOff(s){
+    const roles = ROLES.filter(r => s.clips[r]); if (!roles.length) return;
+    const c = document.createElement('canvas'); c.width = 320; c.height = 180; const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, 320, 180);
+    for (let i = 0; i < roles.length; i++) {
+      const r = roles[i], v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; $('#thumbBox').appendChild(v);
+      try {
+        v.src = s.clips[r].url;
+        await new Promise(res => { v.onloadeddata = res; v.onerror = res; setTimeout(res, 4000); });
+        v.currentTime = Math.max(0, s.clips[r].imp - 0.05); await seeked(v);
+        drawPane(g, {draws:[{v, role:r, a:1}], lr:r}, i*320/roles.length, 0, 320/roles.length, 180, false);
+      } finally { v.removeAttribute('src'); v.load(); v.remove(); }
+    }
+    if (!s.thumb) { s.thumb = c.toDataURL('image/jpeg', 0.7); persist(s); renderStrip(); }
   }
   function makeThumb(s){
     try {

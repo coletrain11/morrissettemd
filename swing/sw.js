@@ -1,6 +1,6 @@
 /* Swing Cam offline cache: the app page is fetched fresh when online, served from cache when not.
    Libraries (PeerJS, QR) and fonts are cached after first use. */
-const CACHE = 'swingcam-v5';
+const CACHE = 'swingcam-v6';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './apple-touch-icon.png'];
 self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).catch(() => {})); });
 self.addEventListener('activate', e => e.waitUntil(
