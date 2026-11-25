@@ -44,9 +44,40 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 /* camera */
 #cam{background:#000}
 #cv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.guide{position:absolute;inset:0;pointer-events:none}
-.guide i{position:absolute;background:#ffffff40}
-.guide .gv{left:50%;top:0;bottom:0;width:1px}.guide .gh{left:0;right:0;top:82%;height:1px}
+/* aiming lines, shared by the phone screen and the iPad live view */
+.gl{position:absolute;inset:0;pointer-events:none;font-size:13px;font-weight:600;color:#fff;text-shadow:0 1px 3px #000}
+.gl i{position:absolute;background:#ffffff8c}
+.gl .g-v{left:50%;top:0;bottom:0;width:1px}
+.gl .g-h{left:0;right:0;top:84%;height:1px;background:#ffd84dcc}
+.gl .g-t{left:0;right:0;top:13%;height:1px;background:#ffd84dcc}
+.gl span{position:absolute;background:#0009;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.gl .g-vl{left:50%;top:58%;transform:translateX(-50%)}
+.gl .g-hl{left:12px;top:calc(84% + 6px)}
+.gl .g-tl{left:12px;top:calc(13% + 6px)}
+.view .gl{display:none}.liveon .view.haslive .gl{display:block}
+#cam .gl .g-tl{top:calc(13% + 6px)}
+#cam.noguide .gl,#cam.noguide #bub{display:none}
+#bub{position:absolute;left:50%;top:calc(64px + var(--st));transform:translateX(-50%);display:none;align-items:center;gap:10px;background:#000a;padding:6px 12px 6px 6px;border-radius:22px;font-weight:700;font-size:15px}
+#bub.on{display:flex}
+#bub .ring{position:relative;width:32px;height:32px;border-radius:50%;border:2px solid #fff8}
+#bub .ring::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px;border-radius:50%;border:1px solid #fff8}
+#bub .ring b{position:absolute;left:50%;top:50%;width:12px;height:12px;margin:-6px;border-radius:50%;background:var(--red)}
+#bub.ok .ring b{background:var(--turf)}#bub.ok{color:var(--turf)}
+/* placement guide */
+#guide{overflow:auto;padding:calc(18px + var(--st)) calc(18px + var(--sr)) calc(28px + var(--sb)) calc(18px + var(--sl));-webkit-user-select:text;user-select:text}
+.gbox{max-width:1000px;margin:0 auto;display:grid;gap:18px}
+.gtop{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.gtop h1{font-size:40px;flex:1 1 300px}
+.gfig{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px}
+.gfig svg{display:block;width:100%;height:auto}
+.gcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}
+.gcard{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;scroll-margin-top:16px}
+.gcard.hl{border-color:var(--ball)}
+.gcard h2{font-size:26px;margin-bottom:4px}
+.gcard .tag{display:inline-block;background:var(--ball);color:#1b1600;font-weight:700;border-radius:8px;padding:1px 9px;font-size:14px;margin-bottom:8px}
+.gcard ol,.gcard ul{margin:10px 0 0;padding-left:1.25em}.gcard li{margin:6px 0}
+.gcard h3{font-size:16px;margin:16px 0 0;color:var(--mut)}
+.gnote{border-left:4px solid var(--red);background:var(--panel);border-radius:0 12px 12px 0;padding:12px 16px}
 .ctop,.cbot{position:absolute;left:0;right:0;padding:12px calc(14px + var(--sr)) 12px calc(14px + var(--sl));display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .ctop{top:0;padding-top:calc(12px + var(--st));background:linear-gradient(#000c,#0000)}
 .cbot{bottom:0;padding-bottom:calc(14px + var(--sb));background:linear-gradient(#0000,#000d)}
@@ -156,8 +187,9 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 
 <div id="cam" class="screen hidden">
   <video id="cv" playsinline muted autoplay></video>
-  <div class="guide"><i class="gv"></i><i class="gh"></i></div>
-  <div class="ctop"><span class="dot"></span><b id="crole"></b><span id="cstat">Not connected</span><span id="cinfo" class="small"></span><span id="csent" class="small"></span></div>
+  <div class="gl" id="cguide"></div>
+  <div id="bub"><span class="ring"><b></b></span><span id="bubT">Level</span></div>
+  <div class="ctop"><span class="dot"></span><b id="crole"></b><span id="cstat">Not connected</span><span id="cinfo" class="small"></span><span id="csent" class="small"></span><span style="flex:1"></span><button id="cGuides" style="min-height:36px;padding:0 12px">Lines</button><button id="cHelp" style="min-height:36px;padding:0 12px">Guide</button></div>
   <div class="cbot">
     <div class="meter"><i id="clvl"></i><s id="cthr"></s></div>
     <label>Trigger <input type="range" id="cthrR" min="-40" max="0" step="1"><span id="cthrV" style="width:4em;text-align:right"></span></label>
@@ -168,9 +200,110 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
     <p id="csRoom" class="small"></p>
     <p id="csWhere" style="max-width:26em;margin:0 auto"></p>
     <div class="seg" style="justify-content:center"><button id="q720" class="on">720p · faster replay</button><button id="q1080">1080p</button></div>
+    <button id="csGuide" style="justify-self:center">How to place this phone</button>
     <button class="pri" id="csBtn" style="min-height:56px;font-size:19px">Start camera</button>
-    <p class="small">Mount the phone upright (portrait), plug it in, and leave Safari open on this page. Line the ball up on the guide lines.</p>
+    <p class="small">Mount the phone upright (portrait), plug it in, and leave Safari open on this page. Lines on screen help you aim it.</p>
     <p id="csErr" class="small" style="color:var(--red)"></p>
+  </div>
+</div>
+
+<div id="guide" class="screen hidden">
+  <div class="gbox">
+    <div class="gtop"><button id="gBack">‹ Back</button><h1>Place the cameras</h1></div>
+    <p style="margin:0;max-width:44em">Both phones go at the height of your hands at address, upright and level. Down the line sits behind you on your hand line. Face-on sits in front of you, square to the target line. Set them up the same way every session so swings compare cleanly.</p>
+    <div class="gfig">
+      <svg viewBox="0 0 640 520" role="img" aria-label="Top-down bay diagram showing where each phone goes">
+        <rect x="8" y="8" width="624" height="504" rx="16" fill="#121915"/>
+        <rect x="40" y="20" width="560" height="24" rx="6" fill="#26384a"/>
+        <text x="320" y="37" text-anchor="middle" fill="#cfe3f5" font-size="14" font-weight="600">Screen · target</text>
+        <rect x="190" y="186" width="210" height="128" rx="8" fill="#1d6b3c"/>
+        <line x1="320" y1="244" x2="320" y2="46" stroke="#ffffff70" stroke-width="2" stroke-dasharray="6 6"/>
+        <text x="328" y="120" fill="#ffffffb0" font-size="13">Target line</text>
+        <line x1="290" y1="46" x2="290" y2="446" stroke="#ffd84d" stroke-width="2" stroke-dasharray="8 6"/>
+        <text x="282" y="120" text-anchor="end" fill="#ffd84d" font-size="13" font-weight="600">Hand line</text>
+        <polygon points="290,446 214,214 366,214" fill="#ffd84d" opacity=".12"/>
+        <polygon points="470,250 238,196 238,304" fill="#7fd3ff" opacity=".12"/>
+        <line x1="254" y1="250" x2="466" y2="250" stroke="#7fd3ff90" stroke-width="2" stroke-dasharray="4 6"/>
+        <rect x="236" y="214" width="26" height="12" rx="6" fill="#9aa59e"/>
+        <rect x="236" y="274" width="26" height="12" rx="6" fill="#9aa59e"/>
+        <ellipse cx="248" cy="250" rx="17" ry="36" fill="#cbd5ce"/>
+        <circle cx="252" cy="250" r="12" fill="#eef2ee"/>
+        <line x1="264" y1="250" x2="290" y2="250" stroke="#cbd5ce" stroke-width="5" stroke-linecap="round"/>
+        <line x1="290" y1="250" x2="314" y2="250" stroke="#8a948e" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="320" cy="250" r="6" fill="#fff"/>
+        <text x="226" y="318" text-anchor="end" fill="#eef2ee" font-size="13">You (right-handed)</text>
+        <text x="330" y="274" fill="#ffffffb0" font-size="12">Ball</text>
+        <rect x="278" y="448" width="24" height="10" rx="3" fill="#ffd84d"/>
+        <text x="314" y="460" fill="#ffd84d" font-size="15" font-weight="700">DTL phone</text>
+        <text x="314" y="479" fill="#eef2ee" font-size="13">About 10 ft behind the ball,</text>
+        <text x="314" y="496" fill="#eef2ee" font-size="13">on your hand line, aimed at the screen</text>
+        <rect x="470" y="238" width="10" height="24" rx="3" fill="#7fd3ff"/>
+        <text x="492" y="226" fill="#7fd3ff" font-size="15" font-weight="700">FO phone</text>
+        <text x="492" y="248" fill="#eef2ee" font-size="13">About 8 ft away,</text>
+        <text x="492" y="265" fill="#eef2ee" font-size="13">square to the target</text>
+        <text x="492" y="282" fill="#eef2ee" font-size="13">line, centered on</text>
+        <text x="492" y="299" fill="#eef2ee" font-size="13">your stance</text>
+        <text x="30" y="498" fill="#94a198" font-size="12">Top-down view, not to scale</text>
+      </svg>
+    </div>
+    <div class="gfig">
+      <svg viewBox="0 0 640 230" role="img" aria-label="Side view: phone lens level with your hands">
+        <rect x="8" y="8" width="624" height="214" rx="16" fill="#121915"/>
+        <line x1="30" y1="196" x2="610" y2="196" stroke="#2c3a32" stroke-width="3"/>
+        <circle cx="186" cy="60" r="14" fill="#eef2ee"/>
+        <line x1="178" y1="74" x2="146" y2="128" stroke="#cbd5ce" stroke-width="12" stroke-linecap="round"/>
+        <line x1="146" y1="128" x2="152" y2="194" stroke="#cbd5ce" stroke-width="10" stroke-linecap="round"/>
+        <line x1="146" y1="128" x2="132" y2="194" stroke="#9aa59e" stroke-width="10" stroke-linecap="round"/>
+        <line x1="174" y1="84" x2="198" y2="132" stroke="#cbd5ce" stroke-width="7" stroke-linecap="round"/>
+        <line x1="198" y1="132" x2="246" y2="192" stroke="#8a948e" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="252" cy="191" r="5" fill="#fff"/>
+        <circle cx="198" cy="132" r="5" fill="#ffd84d"/>
+        <line x1="206" y1="132" x2="508" y2="132" stroke="#ffd84d" stroke-width="2" stroke-dasharray="8 6"/>
+        <text x="356" y="122" text-anchor="middle" fill="#ffd84d" font-size="14" font-weight="600">Lens at hand height (about belt height)</text>
+        <rect x="512" y="106" width="20" height="40" rx="4" fill="#eef2ee"/>
+        <circle cx="522" cy="132" r="4" fill="#121915"/>
+        <line x1="522" y1="146" x2="500" y2="196" stroke="#94a198" stroke-width="3"/>
+        <line x1="522" y1="146" x2="544" y2="196" stroke="#94a198" stroke-width="3"/>
+        <line x1="522" y1="146" x2="522" y2="196" stroke="#94a198" stroke-width="3"/>
+        <text x="556" y="122" fill="#eef2ee" font-size="13">Upright,</text>
+        <text x="556" y="139" fill="#eef2ee" font-size="13">level,</text>
+        <text x="556" y="156" fill="#eef2ee" font-size="13">no tilt</text>
+        <text x="30" y="214" fill="#94a198" font-size="12">Same height for both phones</text>
+      </svg>
+    </div>
+    <div class="gcols">
+      <div class="gcard" id="g-side">
+        <span class="tag">DTL</span><h2>Down the line</h2>
+        <ol>
+          <li>Lay a club on the floor along your toes, pointing at the target. Your hand line runs parallel to it, a little inside, under your hands.</li>
+          <li>Put the phone about 10 ft behind the ball (8–12 ft works), directly on that hand line, pointed straight at the screen.</li>
+          <li>Set the lens at the height of your hands at address, roughly belt height. Keep the phone upright and level; the level dot on the phone turns green.</li>
+          <li>Leave room in the frame: the club at the top of your backswing stays below the top yellow line, and your feet sit near the bottom line.</li>
+        </ol>
+        <h3>Looks right when</h3>
+        <ul><li>Your hands sit on the center line at address.</li><li>The shaft at address and the target line look like they point at the same spot on the screen.</li></ul>
+      </div>
+      <div class="gcard" id="g-front">
+        <span class="tag">FO</span><h2>Face-on</h2>
+        <ol>
+          <li>Lay a club on the floor from the middle of your stance straight toward the camera spot, square to the target line.</li>
+          <li>Put the phone at the end of that club line, about 8 ft from the ball (6–12 ft works), facing your chest.</li>
+          <li>Set the lens at hand height, upright and level, the same height as the DTL phone.</li>
+          <li>Frame yourself a little below center: room above for the club at the top, room below to see the ball.</li>
+        </ol>
+        <h3>Looks right when</h3>
+        <ul><li>The center line runs through the middle of your stance.</li><li>Your feet look the same size and the floor looks flat, not slanted.</li></ul>
+      </div>
+    </div>
+    <div class="gcard">
+      <h2 style="font-size:22px">Check it on the iPad</h2>
+      <ol>
+        <li>Turn on LIVE on the iPad. The same aiming lines appear over both views, so you can adjust each phone while you watch.</li>
+        <li>Take a practice swing and pause at the top of the backswing. The whole club should be in both frames.</li>
+        <li>Mark each tripod spot with tape so next time takes a minute.</li>
+      </ol>
+    </div>
+    <div class="gnote">Shanks fly toward the face-on phone. Put it behind the bay's side net if there is one, or keep it at least 8 ft away.</div>
   </div>
 </div>
 
@@ -231,7 +364,8 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
   <div id="setup">
     <div class="sbox">
       <div class="shead">
-        <div><h1>Set up the bay</h1><p class="small" style="margin:6px 0 0">Get all three devices online first (see Network below), then scan each code with the iPhone for that angle.</p></div>
+        <div><h1>Set up the bay</h1><p class="small" style="margin:6px 0 0">Get all three devices online first (see Network below), then scan each code with the iPhone for that angle.</p>
+          <button id="sGuide" style="margin-top:12px">Camera placement guide</button></div>
         <div style="text-align:right"><div class="small">Room</div><div class="code" id="sRoom">····</div></div>
       </div>
       <p id="sWarn" class="small hidden" style="color:var(--red)"></p>
@@ -271,8 +405,10 @@ const PREFIX = 'swingcam-cm7-';
 const ROLES = ['side','front'];
 const NAMES = {front:'Face-on', side:'Down the line'}, SHORT = {front:'FO', side:'DTL'};
 const WHERE = {
-  side:'Behind you on the target line, about 10 ft back, lens at hand height, aimed at your hands.',
-  front:'Facing your chest, about 8 ft away, lens at chest height, centered between your feet.'};
+  side:'About 10 ft behind the ball on your hand line, lens at hand height, aimed at the screen.',
+  front:'About 8 ft in front of you, square to the target line and centered on your stance, lens at hand height.'};
+const GL = {side:'Your hands', front:'Middle of your stance'};
+const guideHTML = r => `<i class="g-v"></i><i class="g-h"></i><i class="g-t"></i><span class="g-vl">${GL[r]}</span><span class="g-hl">Feet</span><span class="g-tl">Club at the top stays below</span>`;
 const ICON = {play:'<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>', pause:'<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>'};
 const $ = s => document.querySelector(s);
 const now = () => performance.now();
@@ -307,12 +443,22 @@ async function linkType(c){
   } catch(e) { return ''; }
 }
 
+/* ---------- placement guide ---------- */
+let guideBack = 'home';
+function openGuide(role, from){
+  guideBack = from; show('guide'); $('#guide').scrollTop = 0;
+  for (const r of ROLES) $('#g-'+r).classList.toggle('hl', r === role);
+  if (role) setTimeout(() => $('#g-'+role).scrollIntoView({block:'start'}), 50);
+}
+$('#gBack').onclick = () => show(guideBack);
+
 /* ---------- routing ---------- */
 const q = new URLSearchParams(location.search);
 const qCam = q.get('cam'), qRoom = (q.get('room')||'').toUpperCase();
 let qIce = []; try { if (q.get('ice')) qIce = cleanIce(JSON.parse(b64d(q.get('ice')))); } catch(e){}
 if (ROLES.includes(qCam) && /^[A-Z0-9]{4}$/.test(qRoom)) startCam(qCam, qRoom);
 else if (q.has('display')) startDisp();
+else if (q.has('guide')) openGuide(null, 'home');
 else show('home');
 $('#hDisp').onclick = () => { history.replaceState(null, '', '?display'); startDisp(); };
 for (const b of document.querySelectorAll('[data-cam]')) b.onclick = () => {
@@ -327,6 +473,24 @@ function startCam(role, room){
   const ICE = {iceServers:[...STUN, ...qIce]};
   $('#crole').textContent = NAMES[role]; $('#csRole').textContent = NAMES[role] + ' camera';
   $('#csRoom').textContent = 'Room ' + room + (qIce.length ? ' · relay ready' : ''); $('#csWhere').textContent = WHERE[role];
+  $('#cguide').innerHTML = guideHTML(role);
+  $('#csGuide').onclick = () => openGuide(role, 'cam');
+  $('#cHelp').onclick = () => openGuide(role, 'cam');
+  $('#cGuides').onclick = () => { $('#cam').classList.toggle('noguide'); $('#cGuides').classList.toggle('on', !$('#cam').classList.contains('noguide')); };
+  $('#cGuides').classList.add('on');
+  function startLevel(){
+    let seen = false;
+    window.addEventListener('devicemotion', e => {
+      const g = e.accelerationIncludingGravity; if (!g || g.x == null || g.y == null) return;
+      const ay = Math.max(Math.abs(g.y), 0.5);
+      const roll = Math.atan2(g.x, ay) * 57.3, pitch = Math.atan2(g.z || 0, ay) * 57.3;
+      if (!seen) { seen = true; $('#bub').classList.add('on'); }
+      const ok = Math.abs(roll) < 2 && Math.abs(pitch) < 2, cl = v => Math.max(-12, Math.min(12, v * 2.5));
+      $('#bub b').style.transform = `translate(${cl(-roll)}px, ${cl(pitch)}px)`;
+      $('#bub').classList.toggle('ok', ok);
+      $('#bubT').textContent = ok ? 'Level' : `Tilted ${Math.round(Math.max(Math.abs(roll), Math.abs(pitch)))}°`;
+    });
+  }
   let thr = ls.get('thr-'+role, -12), pre = 3, post = 2, hd = ls.get('hd', false), sent = 0;
   let peer = null, conn = null, stream = null, mime = '', info = {}, retryT = 0, liveCall = null;
   const setQ = v => { hd = v; ls.set('hd', v); $('#q720').classList.toggle('on', !v); $('#q1080').classList.toggle('on', v); };
@@ -380,6 +544,8 @@ function startCam(role, room){
   function stopLive(){ if (liveCall) { const lc = liveCall; liveCall = null; try { lc.close(); } catch(e){} } }
 
   $('#csBtn').onclick = async () => {
+    const motionOK = (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function')
+      ? DeviceMotionEvent.requestPermission().catch(() => 'denied') : Promise.resolve('granted');
     $('#csBtn').disabled = true; $('#csErr').textContent = '';
     const W = hd ? 1920 : 1280, H = hd ? 1080 : 720;
     try {
@@ -394,6 +560,7 @@ function startCam(role, room){
     $('#cinfo').textContent = `${s.width}×${s.height} · ${info.fps} fps`;
     $('#cstart').classList.add('hidden');
     startAudio(); startRec(); wake(); connectPeer();
+    motionOK.then(st => { if (st === 'granted') startLevel(); });
   };
 
   /* impact detection: peak level of the mic, ~100 times a second */
@@ -510,7 +677,10 @@ function startDisp(){
       <div class="small st" style="margin-top:8px">Waiting for phone</div>
       <div class="meter"><i></i><s></s></div>
       <label class="small">Trigger line <span class="tv"></span><input type="range" min="-40" max="0" step="1" data-thr="${r}"></label>
-      <a></a></div></div>`).join('');
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px"><button data-guide="${r}" style="min-height:38px">Placement guide</button><a></a></div></div></div>`).join('');
+  for (const b of document.querySelectorAll('[data-guide]')) b.onclick = () => openGuide(b.dataset.guide, 'disp');
+  $('#sGuide').onclick = () => openGuide(null, 'disp');
+  for (const r of ROLES) { const g = document.createElement('div'); g.className = 'gl'; g.innerHTML = guideHTML(r); $('#vw-'+r).insertBefore(g, $('#vw-'+r+' canvas')); }
   for (const r of ROLES) {
     const u = camURL(r), a = $('#cd-'+r+' a'); a.href = u; a.textContent = u.length > 90 ? u.slice(0, 90) + '…' : u;
     try { const qr = qrcode(0, 'L'); qr.addData(u); qr.make(); $('#qr-'+r).innerHTML = qr.createSvgTag(4, 2); }
