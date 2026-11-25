@@ -427,7 +427,8 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
         <label>After impact <select id="oPost"><option>1</option><option>1.5</option><option>2</option><option>2.5</option><option>3</option></select> s</label>
         <label>After each swing <select id="oAfter"><option value="live">Replay once, then live</option><option value="loop">Loop until the next swing</option></select></label>
         <label><input type="checkbox" id="oLoop"> Loop when I replay a swing myself</label>
-        <label><input type="checkbox" id="oBoth"> Both phones must hear impact (ignores other bays)</label>
+        <label><input type="checkbox" id="oBoth"> Both phones must hear impact</label>
+        <label><input type="checkbox" id="oSwing"> Cameras must see a swing (ignores shots in other bays)</label>
         <label><input type="checkbox" id="oMotion"> Also catch practice swings by motion (beta)</label>
         <span class="small" style="flex:1 1 280px">Each phone listens for the sound of impact. Set its trigger line just above the room noise, then make a practice hit. If it misses, lower the line.</span>
       </div>
@@ -661,7 +662,7 @@ function startCam(role, room){
       peakSince = Math.max(peakSince, d); shown = Math.max(d, shown - 1.2);
       let bg = 0, bn = 0; for (let i = hist.length - 2; i >= 0 && hist[i][0] > t - 320; i--) { if (hist[i][0] < t - 40) { bg += Math.pow(10, hist[i][1]/20); bn++; } }
       const sharp = !bn || d - dB(bg/bn) >= 14;
-      if (d >= thr && sharp && t - lastHit > 2500) { lastHit = t; hitPk = d; send({t:'hit', v:Math.round(d), kind:'sound'}); }
+      if (d >= thr && sharp && t - lastHit > 2500) { lastHit = t; hitPk = d; send({t:'hit', v:Math.round(d), kind:'sound', ...swingSeen(t)}); }
       if (t - lastHit < 200) hitPk = Math.max(hitPk, d);
       else if (hitPk > -99) { hitsDb.push(hitPk); if (hitsDb.length > 12) hitsDb.shift(); hitPk = -99; }
       if (t - lastSend > 200) {
@@ -696,6 +697,13 @@ function startCam(role, room){
       if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(sample); else setTimeout(sample, 16);
     };
     sample();
+  }
+  /* how much motion this camera saw just before a sound, vs. how still the bay was a few seconds earlier */
+  function swingSeen(t){
+    if (mot.length < 30) return {};
+    let mx = 0; for (const p of mot) if (p[0] >= t - 700 && p[0] <= t + 30 && p[1] > mx) mx = p[1];
+    const b = mot.filter(p => p[0] >= t - 4000 && p[0] < t - 1500).map(p => p[1]).sort((x, y) => x - y);
+    return {mx:+mx.toFixed(4), med:+(b.length ? b[Math.floor(b.length/2)] : 0).toFixed(4)};
   }
   function motionTrig(t){
     if (t - lastHit < 2500 || t - motLast < 3000 || mot.length < 90) return;
@@ -827,7 +835,7 @@ function startDisp(){
   const extraIce = cleanIce(ls.get('ice', []));
   const ICE = {iceServers:[...STUN, ...extraIce]};
   const cfg = Object.assign({pre:3, post:2, speed:0.5, loop:true, flip:{}, fit:false, xSpeed:0.5, xLines:true,
-    both:true, motion:false, after:'live', club:'', cmpA:'side', cmpStyle:'sbs', ghostA:0.5, gid:'', upX:true, upClips:false}, ls.get('cfg', {}));
+    both:true, motion:false, after:'live', needSwing:true, club:'', cmpA:'side', cmpStyle:'sbs', ghostA:0.5, gid:'', upX:true, upClips:false}, ls.get('cfg', {}));
   const save = () => ls.set('cfg', cfg);
 
   /* ---------- state (declared before anything runs) ---------- */
@@ -934,6 +942,7 @@ function startDisp(){
   $('#oLoop').onchange = () => { cfg.loop = $('#oLoop').checked; save(); };
   $('#oAfter').value = cfg.after; $('#oAfter').onchange = () => { cfg.after = $('#oAfter').value; save(); streamLive(); };
   $('#oBoth').onchange = () => { cfg.both = $('#oBoth').checked; save(); };
+  $('#oSwing').checked = cfg.needSwing; $('#oSwing').onchange = () => { cfg.needSwing = $('#oSwing').checked; save(); };
   $('#oMotion').onchange = () => { cfg.motion = $('#oMotion').checked; save(); sendCfg(); };
   $('#iceIn').value = extraIce.length ? JSON.stringify(extraIce) : '';
   $('#iceMsg').textContent = extraIce.length ? `Relay on (${extraIce.length} server${extraIce.length > 1 ? 's' : ''}). Phones need to rescan.` : 'No relay set.';
@@ -967,7 +976,7 @@ function startDisp(){
     }
     $('#moreStat').innerHTML = ROLES.map(r => { const st = stats[r], on = !!conns[r];
       const bits = [on ? 'connected' : 'not connected', on && link[r], on && rtt[r] != null && Math.round(rtt[r]) + ' ms', st.rc ? st.rc + ' reconnect' + (st.rc > 1 ? 's' : '') : '', (st.ok + st.late) || st.miss ? `${st.ok + st.late} clips${st.late ? ` (${st.late} late)` : ''}${st.miss ? `, ${st.miss} missing` : ''}` : ''].filter(Boolean);
-      return `<b>${SHORT[r]}</b> ${bits.join(' · ')}`; }).join('<br>') + '<br>' + netText.replace(/[<>&]/g, '');
+      return `<b>${SHORT[r]}</b> ${bits.join(' · ')}`; }).join('<br>') + '<br>' + netText.replace(/[<>&]/g, '') + (lastHitTxt ? '<br>' + lastHitTxt : '');
   }
   function meters(){ for (const r of ROLES) $('#cd-'+r+' .meter i').style.width = (conns[r] && lvl[r] != null ? pct(lvl[r]) : 0) + '%'; }
 
@@ -1013,7 +1022,7 @@ function startDisp(){
     else if (m.t === 'info') { info[r] = m; render(); }
     else if (m.t === 'lvl') { lvl[r] = m.v; meters(); }
     else if (m.t === 'thr') { thr[r] = m.v; if (m.auto != null) autoT[r] = !!m.auto; render(); }
-    else if (m.t === 'hit') onHit(r, m.kind);
+    else if (m.t === 'hit') onHit(r, m.kind, m);
     else if (m.t === 'clip') { if (m.n) inbound[m.id + r] = {m, parts:new Array(m.n), got:0, t0:now(), last:now()}; }
     else if (m.t === 'ch') {
       const x = inbound[m.id + r]; if (!x) return;
@@ -1024,12 +1033,28 @@ function startDisp(){
   }
 
   /* ---------- triggering: both phones must hear it (filters other bays) ---------- */
-  function onHit(r, kind){
-    const t = now(); hits[r] = t;
+  let hitM = {}, ignT = 0;
+  const swingOK = () => {
+    const ms = Object.values(hitM).filter(x => x && x.mx != null && now() - x.t < 1500);
+    if (!cfg.needSwing || !ms.length) return true;
+    return ms.some(x => x.mx >= Math.max(0.025, x.med * 4));
+  };
+  let lastHitTxt = '';
+  function fire(kind){
+    lastHitTxt = 'Last sound: ' + Object.entries(hitM).filter(([, x]) => x).map(([r, x]) => `${SHORT[r]} motion ${x.mx.toFixed(3)} vs still ${x.med.toFixed(3)}`).join(' · ');
+    if (kind !== 'motion' && !swingOK()) {
+      lastHitTxt += ' → ignored'; render();
+      if (now() - ignT > 15000) { ignT = now(); toast('Ignored a hit sound with no swing in view (another bay?)'); }
+      hits = {}; hitM = {}; return;
+    }
+    hits = {}; hitM = {}; trigger();
+  }
+  function onHit(r, kind, m){
+    const t = now(); hits[r] = t; hitM[r] = m && m.mx != null ? {mx:m.mx, med:m.med, t} : null;
     const roles = Object.keys(conns).filter(x => info[x] && info[x].w);
-    if (!cfg.both || roles.length < 2) return trigger();
+    if (!cfg.both || roles.length < 2) return fire(kind);
     const win = kind === 'motion' ? 700 : 450;
-    if (roles.every(x => hits[x] && t - hits[x] < win)) { hits = {}; return trigger(); }
+    if (roles.every(x => hits[x] && t - hits[x] < win)) return fire(kind);
     setTimeout(() => {
       if (hits[r] === t && now() - lastTrig > 1500 && now() - soloT > 8000) { soloT = now(); toast(`Only ${SHORT[r]} heard that, so it was ignored`); }
     }, win + 50);
