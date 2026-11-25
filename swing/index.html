@@ -114,7 +114,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 .fit .view video{object-fit:contain}
 .view.flip video{transform:scaleX(-1)}
 .view video.lv{display:none}
-.liveon .view video.lv{display:block}
+.liveon .view.haslive video.lv{display:block}
 .view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;touch-action:none}
 .drawing .view canvas{pointer-events:auto;cursor:crosshair}
 .vlab{position:absolute;left:12px;top:12px;background:#0b0f0d;padding:5px 12px;border-radius:9px;font-weight:700;letter-spacing:.02em}
@@ -125,7 +125,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 .empty{position:absolute;inset:0;display:grid;place-content:center;gap:8px;color:var(--mut);text-align:center;padding:24px}
 .empty b{color:var(--ink);font-size:20px}
 .view.has .empty,.liveon .view.haslive .empty{display:none}
-.liveon .view:not(.haslive) .empty{display:grid}
+.liveon .view:not(.haslive):not(.has) .empty{display:grid}
 #bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px calc(10px + var(--sr)) calc(8px + var(--sb)) calc(10px + var(--sl));background:var(--panel);border-top:1px solid var(--line)}
 #bPlay{width:56px;padding:0;background:var(--ink);color:#0b0f0d;border-color:var(--ink)}
 .track{position:relative;flex:1 1 140px;display:flex;align-items:center;height:44px}
