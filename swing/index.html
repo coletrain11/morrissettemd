@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Swing Cam</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a quiet bay-side instrument; IDEA: the replay monitor at a tour range;
+   PICTURE: two synced video panes (DTL left, face-on right); COLOUR/TYPE: night turf + ball yellow, Barlow;
+   LAYOUT: videos fill the screen, one control rail along the bottom */
+:root{--bg:#0c100e;--panel:#151b18;--line:#26302b;--ink:#eef2ee;--mut:#97a39b;--turf:#34b064;--ball:#ffd84d;--red:#ff5a4f;
+  --sl:env(safe-area-inset-left,0px);--sr:env(safe-area-inset-right,0px);--st:env(safe-area-inset-top,0px);--sb:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.45 Barlow,system-ui,sans-serif;overflow:hidden}
+.hidden{display:none!important}
+button,select,input,textarea{font:inherit;color:inherit}
+button,select{min-height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-weight:600}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--ball);outline-offset:2px}
+button.on{background:var(--turf);border-color:var(--turf);color:#06140b}
+button.pri{background:var(--ball);border-color:var(--ball);color:#1b1600}
+button.live.on{background:var(--red);border-color:var(--red);color:#fff}
+button:disabled{opacity:.5}
+h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
+.small{font-size:14px;color:var(--mut)}
+.screen{position:fixed;inset:0}
+/* home */
+#home{display:grid;place-items:center;padding:24px;overflow:auto}
+#home .box{width:min(520px,100%);display:grid;gap:14px}
+#home h1{font-size:44px}
+#home .big{min-height:64px;font-size:19px;text-align:left}
+#hRoom{min-height:48px;font-size:20px;letter-spacing:.2em;text-transform:uppercase;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:#000;width:9em}
+/* camera */
+#cam{background:#000}
+#cv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.ctop,.cbot{position:absolute;left:0;right:0;padding:12px calc(14px + var(--sr)) 12px calc(14px + var(--sl));background:linear-gradient(#000c,#0000);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ctop{top:0;padding-top:calc(12px + var(--st))}
+.cbot{bottom:0;padding-bottom:calc(14px + var(--sb));background:linear-gradient(#0000,#000d)}
+.ctop b{font-size:20px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--red);display:inline-block;margin-right:6px;animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.dot{animation:none}}
+#cstat.ok{color:var(--turf)}
+.meter{position:relative;height:14px;flex:1 1 200px;background:#ffffff1f;border-radius:7px;overflow:hidden}
+.meter i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--turf)}
+.meter s{position:absolute;top:-2px;bottom:-2px;width:3px;background:var(--ball)}
+.cbot label{display:flex;gap:8px;align-items:center;flex:1 1 260px}
+.cbot input{flex:1}
+.cover{position:absolute;inset:0;display:grid;place-content:center;gap:14px;text-align:center;padding:24px;background:var(--bg)}
+.cover h2{font-size:38px}
+#cflash{position:absolute;inset:0;border:10px solid var(--ball);opacity:0;pointer-events:none;transition:opacity .4s}
+#cflash.on{opacity:1;transition:none}
+/* display */
+#disp{display:grid;grid-template-rows:minmax(0,1fr) auto}
+#stage{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px;padding:calc(4px + var(--st)) calc(4px + var(--sr)) 0 calc(4px + var(--sl))}
+.view{position:relative;background:#000;border-radius:10px;overflow:hidden}
+.view video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.fit .view video{object-fit:contain}
+.view.flip video{transform:scaleX(-1)}
+.view video.lv{display:none}
+.liveon .view video.lv{display:block}
+.view canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;touch-action:none}
+.drawing .view canvas{pointer-events:auto;cursor:crosshair}
+.vlab{position:absolute;left:10px;top:10px;display:flex;gap:6px;align-items:center}
+.vlab span{background:#000a;padding:4px 10px;border-radius:8px;font-weight:700}
+.vlab button{min-height:34px;padding:0 10px;background:#000a;font-size:14px}
+.livetag{display:none;position:absolute;right:10px;top:10px;background:var(--red);color:#fff;font-weight:700;padding:3px 10px;border-radius:8px}
+.liveon .livetag{display:block}
+.empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--mut);text-align:center;padding:20px}
+.view.has .empty,.liveon .view.haslive .empty{display:none}
+.liveon .view:not(.haslive) .empty{display:grid}
+#bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px calc(8px + var(--sr)) calc(8px + var(--sb)) calc(8px + var(--sl));background:var(--panel);border-top:1px solid var(--line)}
+.brk{flex-basis:100%;height:0}
+.seg{display:flex}
+.seg button{border-radius:0;margin-left:-1px;padding:0 12px}
+.seg button:first-child{border-radius:10px 0 0 10px}.seg button:last-child{border-radius:0 10px 10px 0}
+.track{position:relative;flex:1 1 240px;display:flex;align-items:center}
+#scrub{width:100%;accent-color:var(--ball);height:44px;margin:0}
+#imp{position:absolute;top:4px;width:12px;height:12px;margin-left:-6px;transform:rotate(45deg);border:2px solid var(--ball);background:var(--panel);pointer-events:none}
+#tlabel{font-variant-numeric:tabular-nums;width:6.2em;text-align:right;white-space:nowrap;font-weight:600}
+.grp{display:flex;gap:6px;align-items:center;white-space:nowrap}
+#status{font-size:14px;color:var(--mut);flex:1 0 100%;display:flex;gap:14px;flex-wrap:wrap}
+.chip b{font-weight:600}.chip i{display:inline-block;width:9px;height:9px;border-radius:50%;background:#556;margin-right:5px}
+.chip.ok i{background:var(--turf)}
+#setup{position:absolute;inset:0;background:#0c100ef4;overflow:auto;padding:calc(20px + var(--st)) calc(20px + var(--sr)) calc(20px + var(--sb)) calc(20px + var(--sl))}
+.sbox{max-width:1080px;margin:0 auto;display:grid;gap:18px}
+.shead{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap}
+.shead h1{font-size:40px}
+.code{font-size:52px;font-weight:700;letter-spacing:.18em;color:var(--ball);line-height:1}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.card,.opts,.net{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:start}
+.qr{background:#fff;border-radius:8px;padding:6px;width:170px;aspect-ratio:1;display:grid;place-items:center}
+.qr svg{width:100%;height:auto}
+.card h2{font-size:24px;margin-bottom:4px}
+.card .meter{margin:10px 0 6px}
+.card input[type=range]{width:100%;accent-color:var(--ball)}
+.card a{color:var(--mut);font-size:12px;overflow-wrap:anywhere}
+.opts{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.opts label{display:flex;gap:8px;align-items:center}
+.opts select{min-height:40px}
+.net{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.net h3{font-size:20px;margin-bottom:6px}
+.net ol{margin:0;padding-left:1.2em;font-size:15px}
+.net li{margin:3px 0}
+.net textarea{width:100%;min-height:90px;border-radius:10px;border:1px solid var(--line);background:#000;padding:10px;font:13px/1.4 ui-monospace,Menlo,monospace}
+#toast{position:absolute;left:50%;top:calc(16px + var(--st));transform:translateX(-50%);background:var(--ball);color:#1b1600;font-weight:700;padding:8px 16px;border-radius:10px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#toast.on{opacity:1}
+@media(max-width:600px){#stage{grid-template-columns:minmax(0,1fr);grid-template-rows:1fr 1fr}.card{grid-template-columns:minmax(0,1fr)}.qr{width:140px}.code{font-size:40px}}
+</style>
+</head>
+<body>
+
+<div id="home" class="screen hidden">
+  <div class="box">
+    <h1>Swing Cam</h1>
+    <p class="small">Two iPhones film the swing, the iPad replays both angles in sync. Open this page on the iPad first.</p>
+    <button class="big pri" id="hDisp">Use this device as the replay screen (iPad)</button>
+    <p class="small" style="margin:10px 0 0">On an iPhone, scan the QR code on the iPad, or enter the room code:</p>
+    <input id="hRoom" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters">
+    <button class="big" data-cam="side">This iPhone is the Down-the-line camera</button>
+    <button class="big" data-cam="front">This iPhone is the Face-on camera</button>
+    <p id="hErr" class="small" style="color:var(--red)"></p>
+  </div>
+</div>
+
+<div id="cam" class="screen hidden">
+  <video id="cv" playsinline muted autoplay></video>
+  <div class="ctop"><span class="dot"></span><b id="crole"></b><span id="cstat">Not connected</span><span id="cinfo" class="small"></span></div>
+  <div class="cbot">
+    <div class="meter"><i id="clvl"></i><s id="cthr"></s></div>
+    <label>Trigger <input type="range" id="cthrR" min="-40" max="0" step="1"><span id="cthrV" style="width:4em;text-align:right"></span></label>
+  </div>
+  <div id="cflash"></div>
+  <div id="cstart" class="cover">
+    <h2 id="csRole"></h2>
+    <p id="csRoom" class="small"></p>
+    <p id="csWhere" style="max-width:26em;margin:0 auto"></p>
+    <div class="seg" style="justify-content:center"><button id="q720" class="on">720p · faster replay</button><button id="q1080">1080p</button></div>
+    <button class="pri" id="csBtn" style="min-height:56px;font-size:19px">Start camera</button>
+    <p class="small">Mount the phone upright (portrait), plug it in, and leave Safari open on this page.</p>
+    <p id="csErr" class="small" style="color:var(--red)"></p>
+  </div>
+</div>
+
+<div id="disp" class="screen hidden">
+  <div id="stage">
+    <div class="view" id="vw-side"><video class="rp" playsinline muted preload="auto"></video><video class="lv" playsinline muted autoplay></video><canvas></canvas>
+      <div class="vlab"><span>DTL</span><button data-flip="side">Mirror</button></div><div class="livetag">LIVE</div><div class="empty">Waiting for the down-the-line camera</div></div>
+    <div class="view" id="vw-front"><video class="rp" playsinline muted preload="auto"></video><video class="lv" playsinline muted autoplay></video><canvas></canvas>
+      <div class="vlab"><span>FO</span><button data-flip="front">Mirror</button></div><div class="livetag">LIVE</div><div class="empty">Waiting for the face-on camera</div></div>
+  </div>
+  <div id="bar">
+    <button id="bPlay" style="width:5.5em">Play</button>
+    <div class="seg" id="speeds"><button data-r="1">1×</button><button data-r="0.5">½×</button><button data-r="0.25">¼×</button><button data-r="0.125">⅛×</button></div>
+    <div class="grp"><button id="bPrev" aria-label="Back one frame">◀︎</button><button id="bNext" aria-label="Forward one frame">▶︎</button></div>
+    <div class="track"><input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Scrub"><span id="imp" class="hidden" title="Impact"></span></div>
+    <span id="tlabel">–</span>
+    <div class="brk"></div>
+    <button id="bLive" class="live">Live</button>
+    <select id="hist" aria-label="Swing history"><option value="">No swings yet</option></select>
+    <div class="grp" title="Shift the face-on view by frames if the two angles look out of sync"><span class="small">Sync</span><button id="nMinus">−</button><span id="nVal" style="width:2.6em;text-align:center">0</span><button id="nPlus">+</button></div>
+    <button id="bDraw">Draw</button><button id="bClear">Clear lines</button>
+    <button id="bFit">Fit</button>
+    <button id="bSave">Save</button>
+    <button id="bCap" class="pri">Capture now</button>
+    <button id="bSetup">Setup</button>
+    <div id="status"><span class="chip" id="ch-side"><i></i><b>DTL</b> <span>waiting</span></span><span class="chip" id="ch-front"><i></i><b>FO</b> <span>waiting</span></span><span id="net">Connecting…</span><span id="msg"></span></div>
+  </div>
+  <div id="setup">
+    <div class="sbox">
+      <div class="shead">
+        <div><h1>Set up the bay</h1><p class="small" style="margin:6px 0 0">Get all three devices online first (see Network below), then scan each code with the iPhone for that angle.</p></div>
+        <div style="text-align:right"><div class="small">Room</div><div class="code" id="sRoom">····</div></div>
+      </div>
+      <p id="sWarn" class="small hidden" style="color:var(--red)"></p>
+      <div class="cards" id="cards"></div>
+      <div class="opts">
+        <label>Before impact <select id="oPre"><option>2</option><option>2.5</option><option>3</option><option>4</option><option>5</option></select> s</label>
+        <label>After impact <select id="oPost"><option>1</option><option>1.5</option><option>2</option><option>2.5</option><option>3</option></select> s</label>
+        <label><input type="checkbox" id="oLoop"> Loop replay</label>
+        <span class="small" style="flex:1 1 280px">Each phone listens for the sound of impact. Set its trigger line just above the room noise, then make a practice hit. If it misses, lower the line.</span>
+      </div>
+      <div class="net">
+        <div><h3>Network: bay Wi-Fi</h3><ol>
+          <li>Join the iPad and both iPhones to the same Wi-Fi.</li>
+          <li>Scan the codes above. Each camera card shows how it connected.</li>
+          <li>“Local network” is best. If a camera says “Relay”, or never connects, the Wi-Fi blocks devices from talking to each other. Use a hotspot instead.</li></ol></div>
+        <div><h3>Network: no usable Wi-Fi</h3><ol>
+          <li>Turn on Personal Hotspot on one iPhone (it can be one of the cameras).</li>
+          <li>Join the iPad and the other iPhone to that hotspot. Video stays on the hotspot; only the brief handshake uses cellular data.</li>
+          <li>If devices can't share a hotspot, each can use its own cellular data with a relay server below.</li></ol></div>
+        <div><h3>Relay server (optional)</h3>
+          <p class="small" style="margin:0 0 8px">For cellular-only setups. Paste the “ICE servers array” from a free Metered Open Relay account. It's saved on this iPad and carried to the phones in the QR codes.</p>
+          <textarea id="iceIn" spellcheck="false" placeholder='[{"urls":"turn:standard.relay.metered.ca:80","username":"…","credential":"…"}]'></textarea>
+          <div style="display:flex;gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap"><button id="iceSave">Save relay</button><button id="iceClr">Remove</button><span id="iceMsg" class="small"></span></div></div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap"><button class="pri" id="sGo" style="min-height:56px;font-size:19px;padding:0 28px">Start session</button><button id="sClose" class="hidden">Done</button></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+{
+const STUN = [{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}];
+const PREFIX = 'swingcam-cm7-';
+const ROLES = ['side','front'];
+const NAMES = {front:'Face-on', side:'Down the line'}, SHORT = {front:'FO', side:'DTL'};
+const WHERE = {
+  side:'Behind you on the target line, about 10 ft back, lens at hand height, aimed at your hands.',
+  front:'Facing your chest, about 8 ft away, lens at chest height, centered between your feet.'};
+const $ = s => document.querySelector(s);
+const now = () => performance.now();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const dB = v => v > 0 ? 20*Math.log10(v) : -99;
+const pct = d => Math.max(0, Math.min(100, (d+60)/60*100));
+const ls = {get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g,'+').replace(/_/g,'/'))));
+const cleanIce = a => (Array.isArray(a) ? a : (a && Array.isArray(a.iceServers) ? a.iceServers : []))
+  .filter(x => x && (typeof x.urls === 'string' || Array.isArray(x.urls)))
+  .map(x => ({urls:x.urls, ...(x.username ? {username:String(x.username)} : {}), ...(x.credential ? {credential:String(x.credential)} : {})}));
+const show = id => { for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id); };
+let wl = null;
+async function wake(){ try { wl = await navigator.wakeLock.request('screen'); } catch(e){} }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && wl) wake(); });
+function note(t){ for (const id of ['#csErr','#msg']) { const e = $(id); if (e) e.textContent = t; } }
+const peerOK = () => { if (window.Peer) return true; note('Could not load the connection library. Check the internet connection and reload.'); return false; };
+async function linkType(c){
+  try {
+    const pc = c && c.peerConnection; if (!pc) return '';
+    const st = await pc.getStats(); let pair = null;
+    st.forEach(r => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = st.get(r.selectedCandidatePairId); });
+    if (!pair) st.forEach(r => { if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r; });
+    if (!pair) return '';
+    const l = st.get(pair.localCandidateId), rm = st.get(pair.remoteCandidateId);
+    const t = [l && l.candidateType, rm && rm.candidateType];
+    if (t.includes('relay')) return 'Relay';
+    if (l && l.candidateType === 'host') return 'Local network';
+    return 'Internet';
+  } catch(e) { return ''; }
+}
+
+/* ---------- routing ---------- */
+const q = new URLSearchParams(location.search);
+const qCam = q.get('cam'), qRoom = (q.get('room')||'').toUpperCase();
+let qIce = []; try { if (q.get('ice')) qIce = cleanIce(JSON.parse(b64d(q.get('ice')))); } catch(e){}
+if (ROLES.includes(qCam) && /^[A-Z0-9]{4}$/.test(qRoom)) startCam(qCam, qRoom);
+else if (q.has('display')) startDisp();
+else show('home');
+$('#hDisp').onclick = () => { history.replaceState(null, '', '?display'); startDisp(); };
+for (const b of document.querySelectorAll('[data-cam]')) b.onclick = () => {
+  const r = $('#hRoom').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(r)) { $('#hErr').textContent = 'Enter the 4-character room code shown on the iPad.'; return; }
+  location.search = '?cam=' + b.dataset.cam + '&room=' + r;
+};
+
+/* =================== CAMERA (iPhone) =================== */
+function startCam(role, room){
+  show('cam');
+  const ICE = {iceServers:[...STUN, ...qIce]};
+  $('#crole').textContent = NAMES[role]; $('#csRole').textContent = NAMES[role] + ' camera';
+  $('#csRoom').textContent = 'Room ' + room + (qIce.length ? ' · relay ready' : ''); $('#csWhere').textContent = WHERE[role];
+  let thr = ls.get('thr-'+role, -12), pre = 3, post = 2, hd = ls.get('hd', false);
+  let peer = null, conn = null, stream = null, mime = '', info = {}, retryT = 0, liveCall = null, wantLive = false;
+  const setQ = v => { hd = v; ls.set('hd', v); $('#q720').classList.toggle('on', !v); $('#q1080').classList.toggle('on', v); };
+  setQ(hd); $('#q720').onclick = () => setQ(false); $('#q1080').onclick = () => setQ(true);
+  const setThr = v => { thr = +v; ls.set('thr-'+role, thr); $('#cthrR').value = thr; $('#cthrV').textContent = thr + ' dB'; $('#cthr').style.left = pct(thr) + '%'; };
+  setThr(thr);
+  $('#cthrR').oninput = e => { setThr(e.target.value); send({t:'thr', v:thr}); };
+  const stat = (s, ok) => { $('#cstat').textContent = s; $('#cstat').className = ok ? 'ok' : ''; };
+  const send = m => { if (conn && conn.open) try { conn.send(m); } catch(e){} };
+  const flash = () => { const f = $('#cflash'); f.classList.add('on'); setTimeout(() => f.classList.remove('on'), 60); };
+
+  function retry(ms){ clearTimeout(retryT); retryT = setTimeout(dial, ms); }
+  function connectPeer(){
+    if (!peerOK()) return;
+    peer = new Peer({config: ICE});
+    peer.on('open', dial);
+    peer.on('error', e => {
+      if (e.type === 'peer-unavailable') { stat('Waiting for the iPad…'); retry(2500); }
+      else if (['network','server-error','socket-error','socket-closed'].includes(e.type)) { stat('No internet, retrying…'); setTimeout(() => { try { if (!peer.destroyed) peer.reconnect(); } catch(_){} }, 3000); }
+    });
+    peer.on('disconnected', () => setTimeout(() => { try { if (!peer.destroyed && peer.disconnected) peer.reconnect(); } catch(_){} }, 1500));
+  }
+  function dial(){
+    if ((conn && conn.open) || !peer || peer.disconnected) return;
+    stat('Connecting to iPad…');
+    const c = peer.connect(PREFIX + room, {reliable:true, serialization:'binary', metadata:{role}});
+    const to = setTimeout(() => { if (!c.open) { try { c.close(); } catch(_){} stat('Could not reach the iPad, retrying…'); retry(500); } }, 15000);
+    c.on('open', async () => {
+      clearTimeout(to); conn = c; stat('Connected to iPad', true); send({t:'info', ...info}); send({t:'thr', v:thr});
+      await sleep(1500); const lt = await linkType(c); if (lt && conn === c) stat('Connected · ' + lt, true);
+    });
+    c.on('data', onMsg);
+    c.on('close', () => { clearTimeout(to); if (conn === c) { conn = null; stopLive(); stat('Reconnecting…'); retry(1500); } });
+    c.on('error', () => {});
+  }
+  function onMsg(m){
+    if (!m || !m.t) return;
+    if (m.t === 'ping') send({t:'pong', a:m.a});
+    else if (m.t === 'cfg') { pre = +m.pre; post = +m.post; }
+    else if (m.t === 'thr') setThr(m.v);
+    else if (m.t === 'cap') capture(m.id, +m.lat || 0);
+    else if (m.t === 'live') { wantLive = !!m.on; wantLive ? startLive() : stopLive(); }
+  }
+  function startLive(){
+    if (liveCall || !stream || !peer || !conn) return;
+    try {
+      liveCall = peer.call(PREFIX + room, new MediaStream(stream.getVideoTracks()), {metadata:{role}});
+      const lc = liveCall; lc.on('close', () => { if (liveCall === lc) liveCall = null; }); lc.on('error', () => {});
+    } catch(e) { liveCall = null; }
+  }
+  function stopLive(){ if (liveCall) { const lc = liveCall; liveCall = null; try { lc.close(); } catch(e){} } }
+
+  $('#csBtn').onclick = async () => {
+    $('#csBtn').disabled = true; $('#csErr').textContent = '';
+    const W = hd ? 1920 : 1280, H = hd ? 1080 : 720;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:{ideal:'environment'}, width:{ideal:W}, height:{ideal:H}, frameRate:{ideal:60}},
+        audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+    } catch(e) { $('#csErr').textContent = 'Camera or microphone blocked (' + e.name + '). Allow both for this site in Safari settings, then reload.'; $('#csBtn').disabled = false; return; }
+    const v = $('#cv'); v.srcObject = stream; v.play().catch(() => {});
+    const s = stream.getVideoTracks()[0].getSettings();
+    mime = ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
+    info = {w:s.width, h:s.height, fps:Math.round(s.frameRate || 30), mime, hd};
+    $('#cinfo').textContent = `${s.width}×${s.height} · ${info.fps} fps`;
+    $('#cstart').classList.add('hidden');
+    startAudio(); startRec(); wake(); connectPeer();
+  };
+
+  /* impact detection: peak level of the mic, ~100 times a second */
+  const hist = []; let lastHit = -1e9;
+  function startAudio(){
+    const AC = window.AudioContext || window.webkitAudioContext; const ac = new AC(); ac.resume();
+    const an = ac.createAnalyser(); an.fftSize = 1024; ac.createMediaStreamSource(stream).connect(an);
+    const buf = new Float32Array(an.fftSize); let shown = -60, peakSince = -99, lastSend = 0, k = 0;
+    setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      let m = 0; for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > m) m = a; }
+      const t = now(), d = dB(m);
+      hist.push([t, d]); while (hist.length && hist[0][0] < t - 3000) hist.shift();
+      peakSince = Math.max(peakSince, d); shown = Math.max(d, shown - 1.2);
+      if (d >= thr && t - lastHit > 2500) { lastHit = t; send({t:'hit', v:Math.round(d)}); }
+      if (t - lastSend > 200) { lastSend = t; send({t:'lvl', v:Math.round(peakSince)}); peakSince = -99; }
+      if (++k % 3 === 0) $('#clvl').style.width = pct(shown) + '%';
+    }, 10);
+  }
+
+  /* rolling buffer: overlapping recorders, so one always started >= `pre` s before any moment */
+  let recs = [], overlapFailed = false;
+  const period = () => Math.max(2, pre) * 1000;
+  function spawn(){
+    let mr;
+    try { mr = new MediaRecorder(stream, {...(mime ? {mimeType:mime} : {}), videoBitsPerSecond: hd ? 10e6 : 6e6}); mr.start(); }
+    catch(e) { if (recs.length) overlapFailed = true; else stat('Recorder error: ' + e.message); return; }
+    const r = {mr, start:now(), chunks:[], keep:false};
+    mr.ondataavailable = e => { if (e.data && e.data.size) r.chunks.push(e.data); };
+    mr.onstop = () => { if (r.keep) deliver(r); else r.chunks = []; };
+    recs.push(r);
+  }
+  function drop(r){ try { r.mr.stop(); } catch(e){} }
+  function startRec(){
+    spawn();
+    setInterval(() => {
+      const t = now();
+      while (recs.length > 1 && recs[1].start <= t - pre*1000) drop(recs.shift());
+      if (overlapFailed && recs.length === 1 && t - recs[0].start > 20000) { drop(recs.shift()); spawn(); return; }
+      const last = recs[recs.length-1];
+      if (!last || t - last.start >= period()) spawn();
+    }, 200);
+  }
+  const done = new Set();
+  function capture(id, lat){
+    if (done.has(id) || !recs.length) return; done.add(id);
+    const t = now();
+    let best = null;
+    for (const [ht, d] of hist) if (ht >= t - lat - 800 && (!best || d > best[1])) best = [ht, d];
+    const heard = !!(best && best[1] >= thr - 8);
+    const tImp = heard ? best[0] - 15 : t - lat;
+    let r = null; for (const x of recs) if (x.start <= tImp - pre*1000) r = x;
+    if (!r) r = recs[0];
+    recs = recs.filter(x => x !== r);
+    Object.assign(r, {keep:true, id, heard, est:Math.max(0, (tImp - r.start)/1000)});
+    if (!recs.length) spawn();
+    setTimeout(() => { try { r.mr.stop(); } catch(e){} }, Math.max(0, tImp + post*1000 - now()));
+    flash();
+  }
+  async function deliver(r){
+    const blob = new Blob(r.chunks, {type:(r.chunks[0] && r.chunks[0].type) || mime || 'video/mp4'});
+    r.chunks = [];
+    for (let i = 0; !(conn && conn.open) && i < 60; i++) await sleep(250);
+    if (!(conn && conn.open)) return;
+    const ab = await blob.arrayBuffer(), CH = 192*1024, n = Math.ceil(ab.byteLength / CH);
+    send({t:'clip', id:r.id, mime:blob.type, est:r.est, heard:r.heard, n, size:ab.byteLength, fps:info.fps});
+    for (let i = 0; i < n; i++) {
+      while (conn && conn.dataChannel && conn.dataChannel.bufferedAmount > 3e6) await sleep(15);
+      send({t:'ch', id:r.id, i, d:ab.slice(i*CH, (i+1)*CH)});
+    }
+  }
+}
+
+/* =================== DISPLAY (iPad) =================== */
+function startDisp(){
+  show('disp');
+  const AL = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let room = ls.get('room', null);
+  if (!room) { room = Array.from({length:4}, () => AL[Math.floor(Math.random()*AL.length)]).join(''); ls.set('room', room); }
+  const extraIce = cleanIce(ls.get('ice', []));
+  const ICE = {iceServers:[...STUN, ...extraIce]};
+  const cfg = Object.assign({pre:3, post:2, speed:0.5, loop:true, flip:{}, fit:false}, ls.get('cfg', {}));
+  const save = () => ls.set('cfg', cfg);
+  const conns = {}, rtt = {}, info = {}, lvl = {}, thr = {}, link = {}, inbound = {}, liveS = {};
+  const swings = []; let lastTrig = -1e9, seq = 0, cur = null, peer = null, liveOn = false;
+  const toast = t => { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 1800); };
+  const msg = t => $('#msg').textContent = t;
+  const net = t => $('#net').textContent = t;
+
+  /* setup panel */
+  $('#sRoom').textContent = room;
+  const base = location.origin + location.pathname;
+  const camURL = r => `${base}?cam=${r}&room=${room}` + (extraIce.length ? '&ice=' + b64e(JSON.stringify(extraIce)) : '');
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') { $('#sWarn').textContent = 'This page must be opened from an https:// address for the iPhone cameras to work.'; $('#sWarn').classList.remove('hidden'); }
+  $('#cards').innerHTML = ROLES.map(r => `<div class="card" id="cd-${r}"><div class="qr" id="qr-${r}"></div><div>
+      <h2>${NAMES[r]}</h2><div class="small">${WHERE[r]}</div>
+      <div class="small st" style="margin-top:8px">Waiting for phone</div>
+      <div class="meter"><i></i><s></s></div>
+      <label class="small">Trigger line <span class="tv"></span><input type="range" min="-40" max="0" step="1" data-thr="${r}"></label>
+      <a></a></div></div>`).join('');
+  for (const r of ROLES) {
+    const u = camURL(r), a = $('#cd-'+r+' a'); a.href = u; a.textContent = u.length > 90 ? u.slice(0, 90) + '…' : u;
+    try { const qr = qrcode(0, 'L'); qr.addData(u); qr.make(); $('#qr-'+r).innerHTML = qr.createSvgTag(4, 2); }
+    catch(e) { $('#qr-'+r).textContent = 'QR unavailable'; }
+  }
+  for (const inp of document.querySelectorAll('[data-thr]')) inp.oninput = () => { const r = inp.dataset.thr; thr[r] = +inp.value; sendTo(r, {t:'thr', v:thr[r]}); render(); };
+  $('#oPre').value = String(cfg.pre); $('#oPost').value = String(cfg.post); $('#oLoop').checked = cfg.loop;
+  $('#oPre').onchange = $('#oPost').onchange = () => { cfg.pre = +$('#oPre').value; cfg.post = +$('#oPost').value; save(); for (const r in conns) sendTo(r, {t:'cfg', pre:cfg.pre, post:cfg.post}); };
+  $('#oLoop').onchange = () => { cfg.loop = $('#oLoop').checked; save(); };
+  $('#iceIn').value = extraIce.length ? JSON.stringify(extraIce) : '';
+  $('#iceMsg').textContent = extraIce.length ? `Relay on (${extraIce.length} server${extraIce.length > 1 ? 's' : ''}). Phones need to rescan.` : 'No relay set.';
+  $('#iceSave').onclick = () => {
+    let v; try { v = cleanIce(JSON.parse($('#iceIn').value.trim())); } catch(e) { v = []; }
+    if (!v.length) { $('#iceMsg').textContent = 'That isn’t a valid ICE servers array.'; return; }
+    ls.set('ice', v); location.reload();
+  };
+  $('#iceClr').onclick = () => { ls.set('ice', []); location.reload(); };
+  $('#sGo').onclick = async () => {
+    wake(); getAC();
+    try { const s = await navigator.mediaDevices.getUserMedia({audio:true}); s.getTracks().forEach(t => t.stop()); } catch(e){} /* lets Safari use local Wi-Fi addresses */
+    $('#sGo').classList.add('hidden'); $('#sClose').classList.remove('hidden'); $('#setup').classList.add('hidden');
+  };
+  $('#sClose').onclick = () => $('#setup').classList.add('hidden');
+  $('#bSetup').onclick = () => $('#setup').classList.remove('hidden');
+
+  function render(){
+    for (const r of ROLES) {
+      const on = !!conns[r], i = info[r], cd = $('#cd-'+r), st = cd.querySelector('.st');
+      const lk = link[r] ? ' · ' + link[r] : '';
+      st.textContent = on ? (i && i.w ? `Connected${lk} · ${i.w}×${i.h} · ${i.fps} fps` : `Connected${lk} · tap Start camera on the phone`) : 'Waiting for phone';
+      st.style.color = on ? (link[r] === 'Relay' ? 'var(--ball)' : 'var(--turf)') : '';
+      const ch = $('#ch-' + r); ch.classList.toggle('ok', on);
+      ch.querySelector('span').textContent = on ? [i && i.fps ? i.fps + ' fps' : 'connected', link[r]].filter(Boolean).join(' · ') : 'waiting';
+      if (thr[r] != null) { cd.querySelector('[data-thr]').value = thr[r]; cd.querySelector('.tv').textContent = thr[r] + ' dB'; cd.querySelector('.meter s').style.left = pct(thr[r]) + '%'; }
+    }
+  }
+  function meters(){ for (const r of ROLES) $('#cd-'+r+' .meter i').style.width = (conns[r] && lvl[r] != null ? pct(lvl[r]) : 0) + '%'; }
+
+  /* connections */
+  const sendTo = (r, m) => { const c = conns[r]; if (c && c.open) try { c.send(m); } catch(e){} };
+  function openPeer(){
+    if (!peerOK()) return;
+    peer = new Peer(PREFIX + room, {config: ICE});
+    peer.on('open', () => net('Online · room ' + room + (extraIce.length ? ' · relay on' : '')));
+    peer.on('connection', c => {
+      const r = c.metadata && c.metadata.role; if (!ROLES.includes(r)) { c.close(); return; }
+      c.on('open', async () => {
+        if (conns[r] && conns[r] !== c) try { conns[r].close(); } catch(e){}
+        conns[r] = c; c.send({t:'cfg', pre:cfg.pre, post:cfg.post}); if (liveOn) c.send({t:'live', on:true});
+        render(); toast(NAMES[r] + ' camera connected');
+        await sleep(1500); if (conns[r] === c) { link[r] = await linkType(c); render(); }
+      });
+      c.on('data', m => onData(r, m));
+      c.on('close', () => { if (conns[r] === c) { delete conns[r]; delete link[r]; render(); meters(); toast(NAMES[r] + ' camera disconnected'); } });
+      c.on('error', () => {});
+    });
+    peer.on('call', call => {
+      const r = call.metadata && call.metadata.role; if (!ROLES.includes(r)) { call.close(); return; }
+      call.answer();
+      call.on('stream', s => { liveS[r] = {s, call}; const v = $('#vw-'+r+' video.lv'); v.srcObject = s; v.play().catch(() => {}); $('#vw-'+r).classList.add('haslive'); });
+      call.on('close', () => { if (liveS[r] && liveS[r].call === call) { delete liveS[r]; $('#vw-'+r+' video.lv').srcObject = null; $('#vw-'+r).classList.remove('haslive'); } });
+      call.on('error', () => {});
+    });
+    peer.on('error', e => {
+      if (e.type === 'unavailable-id') { net('Room still registered, retrying…'); setTimeout(() => { try { peer.destroy(); } catch(_){} openPeer(); }, 5000); }
+      else if (['network','server-error','socket-error','socket-closed'].includes(e.type)) { net('No internet, retrying…'); setTimeout(() => { try { if (!peer.destroyed && peer.disconnected) peer.reconnect(); } catch(_){} }, 3000); }
+    });
+    peer.on('disconnected', () => { net('Reconnecting…'); setTimeout(() => { try { if (!peer.destroyed && peer.disconnected) peer.reconnect(); } catch(_){} }, 2000); });
+  }
+  openPeer();
+  setInterval(() => { for (const r in conns) sendTo(r, {t:'ping', a:now()}); }, 2000);
+
+  function onData(r, m){
+    if (!m || !m.t) return;
+    if (m.t === 'pong') rtt[r] = now() - m.a;
+    else if (m.t === 'info') { info[r] = m; render(); }
+    else if (m.t === 'lvl') { lvl[r] = m.v; meters(); }
+    else if (m.t === 'thr') { thr[r] = m.v; render(); }
+    else if (m.t === 'hit') trigger();
+    else if (m.t === 'clip') { if (m.n) inbound[m.id + r] = {m, parts:new Array(m.n), got:0, t0:now()}; }
+    else if (m.t === 'ch') {
+      const x = inbound[m.id + r]; if (!x) return;
+      if (!x.parts[m.i]) { x.parts[m.i] = m.d; x.got++; }
+      if (x.got === x.m.n) { delete inbound[m.id + r]; x.secs = (now() - x.t0)/1000; gotClip(r, x.m, new Blob(x.parts, {type:x.m.mime}), x.secs); }
+    }
+  }
+
+  /* swings */
+  function trigger(){
+    const t = now(); if (t - lastTrig < 2500) return;
+    const roles = Object.keys(conns); if (!roles.length) { toast('No cameras connected'); return; }
+    lastTrig = t;
+    const s = {id: Date.now().toString(36) + '-' + (++seq), n:seq, at:new Date(), expect:roles, clips:{}, nudge:0};
+    swings.push(s);
+    for (const r of roles) sendTo(r, {t:'cap', id:s.id, lat:(rtt[r] || 80)/2});
+    msg(`Swing ${s.n} · receiving video…`);
+    s.timer = setTimeout(() => ready(s), cfg.post*1000 + 12000);
+    while (swings.length > 25) { const old = swings.shift(); for (const k in old.clips) URL.revokeObjectURL(old.clips[k].url); }
+  }
+  async function gotClip(r, m, blob, secs){
+    const s = swings.find(x => x.id === m.id); if (!s) return;
+    const imp = await refine(blob, m.est);
+    s.clips[r] = {url:URL.createObjectURL(blob), imp, fps:m.fps || 60, mime:m.mime, mb:blob.size/1e6, secs};
+    if (s.expect.every(k => s.clips[k])) ready(s);
+  }
+  function ready(s){
+    if (s.shown) return; clearTimeout(s.timer);
+    if (!Object.keys(s.clips).length) { msg(`Swing ${s.n}: no video arrived`); return; }
+    s.shown = true; renderHist();
+    const miss = s.expect.filter(r => !s.clips[r]).map(r => SHORT[r]);
+    const slow = Math.max(...Object.values(s.clips).map(c => c.secs || 0));
+    msg((miss.length ? `${miss.join(', ')} clip missing · ` : '') + `transfer ${slow.toFixed(1)} s`);
+    setLive(false); load(s, true);
+  }
+  function renderHist(){
+    const list = swings.filter(s => s.shown).slice().reverse();
+    $('#hist').innerHTML = list.length ? list.map(s => `<option value="${s.id}">Swing ${s.n} · ${s.at.toLocaleTimeString([], {hour:'numeric', minute:'2-digit', second:'2-digit'})}</option>`).join('') : '<option value="">No swings yet</option>';
+    if (cur) $('#hist').value = cur.id;
+  }
+  $('#hist').onchange = () => { const s = swings.find(x => x.id === $('#hist').value); if (s) { setLive(false); load(s, true); } };
+
+  /* precise sync: find the impact transient in each clip's own audio track */
+  let ac = null;
+  function getAC(){ if (!ac) { const AC = window.AudioContext || window.webkitAudioContext; try { ac = new AC(); } catch(e){} } return ac; }
+  async function refine(blob, est){
+    try {
+      const a = getAC(); if (!a) return est;
+      const buf = await a.decodeAudioData(await blob.arrayBuffer());
+      const ch = buf.getChannelData(0), sr = buf.sampleRate;
+      const i0 = Math.max(0, Math.floor((est - 0.4)*sr)), i1 = Math.min(ch.length, Math.floor((est + 0.4)*sr));
+      let m = 0; for (let i = i0; i < i1; i++) { const v = Math.abs(ch[i]); if (v > m) m = v; }
+      if (m < 0.05) return est;
+      for (let i = i0; i < i1; i++) if (Math.abs(ch[i]) >= m*0.5) return i/sr;
+    } catch(e) {}
+    return est;
+  }
+
+  /* live view */
+  function setLive(on){
+    liveOn = on; $('#bLive').classList.toggle('on', on); $('#stage').classList.toggle('liveon', on);
+    for (const r in conns) sendTo(r, {t:'live', on});
+    if (on) pause();
+  }
+  $('#bLive').onclick = () => setLive(!liveOn);
+
+  /* player */
+  const V = {front:$('#vw-front video.rp'), side:$('#vw-side video.rp')};
+  let rate = cfg.speed, playing = false, master = null, range = [0, 0], holdT = 0;
+  const act = () => cur ? ROLES.filter(r => cur.clips[r]) : [];
+  const fps = () => (cur && master && cur.clips[master].fps) || 60;
+  const off = r => cur.clips[r].imp + (r === master ? 0 : cur.nudge / (cur.clips[r].fps || 60));
+  const relNow = () => V[master].currentTime - off(master);
+  const meta = v => new Promise(res => { if (v.readyState >= 1) return res(); const f = () => { v.removeEventListener('loadedmetadata', f); res(); }; v.addEventListener('loadedmetadata', f); setTimeout(res, 5000); });
+  for (const r of ROLES) $('#vw-'+r).classList.toggle('flip', !!cfg.flip[r]);
+  for (const b of document.querySelectorAll('[data-flip]')) b.onclick = () => { const r = b.dataset.flip; cfg.flip[r] = !cfg.flip[r]; save(); $('#vw-'+r).classList.toggle('flip', cfg.flip[r]); };
+  const setFit = f => { cfg.fit = f; save(); $('#stage').classList.toggle('fit', f); $('#bFit').classList.toggle('on', f); redraw(); };
+  $('#bFit').onclick = () => setFit(!cfg.fit);
+
+  async function load(s, auto){
+    clearTimeout(holdT); pause(); cur = s; $('#hist').value = s.id; $('#nVal').textContent = fmtN(s.nudge);
+    for (const r of ROLES) {
+      const v = V[r], c = s.clips[r]; $('#vw-'+r).classList.toggle('has', !!c);
+      if (c) { if (v.getAttribute('src') !== c.url) { v.src = c.url; v.load(); } } else { v.removeAttribute('src'); v.load(); }
+    }
+    const a = act(); await Promise.all(a.map(r => meta(V[r])));
+    if (cur !== s) return;
+    master = a[0];
+    let lo = -cfg.pre, hi = cfg.post;
+    for (const r of a) { const c = s.clips[r], d = isFinite(V[r].duration) ? V[r].duration : c.imp + cfg.post; lo = Math.max(lo, -c.imp); hi = Math.min(hi, d - c.imp - 0.04); }
+    range = [lo, Math.max(lo + 0.1, hi)];
+    const ip = (0 - range[0]) / (range[1] - range[0]);
+    $('#imp').classList.toggle('hidden', !(ip > 0 && ip < 1)); $('#imp').style.left = `calc(${ip*100}% + ${(0.5 - ip)*16}px)`;
+    seek(range[0]); if (auto && !liveOn) play();
+  }
+  function seek(rel){
+    if (!cur || !master) return;
+    rel = Math.max(range[0], Math.min(range[1], rel));
+    for (const r of act()) { try { V[r].currentTime = Math.max(0, rel + off(r)); } catch(e){} }
+    ui(rel);
+  }
+  function play(){ if (!cur || !master) return; if (liveOn) setLive(false); clearTimeout(holdT); playing = true; for (const r of act()) { V[r].playbackRate = rate; V[r].play().catch(() => {}); } $('#bPlay').textContent = 'Pause'; }
+  function pause(){ playing = false; clearTimeout(holdT); for (const r of ROLES) V[r].pause(); $('#bPlay').textContent = 'Play'; }
+  const fmtN = n => (n > 0 ? '+' : '') + n;
+  function ui(rel){
+    const span = range[1] - range[0] || 1;
+    $('#scrub').value = Math.round((rel - range[0]) / span * 1000);
+    $('#tlabel').textContent = Math.abs(rel) < 0.5/fps() ? 'Impact' : (rel < 0 ? '−' : '+') + Math.abs(rel).toFixed(2) + ' s';
+  }
+  function tick(){
+    if (cur && master && playing) {
+      const rel = relNow();
+      if (rel >= range[1] - 0.005 || V[master].ended) {
+        if (cfg.loop) { pause(); holdT = setTimeout(() => { seek(range[0]); play(); }, 700); } else pause();
+      } else {
+        for (const r of act()) if (r !== master) {
+          const v = V[r], diff = v.currentTime - (rel + off(r));
+          if (Math.abs(diff) > 0.12) v.currentTime = rel + off(r);
+          else v.playbackRate = Math.max(0.0625, rate * (1 - diff*3));
+        }
+      }
+      ui(rel);
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  const setRate = r => { rate = r; cfg.speed = r; save(); for (const b of document.querySelectorAll('#speeds button')) b.classList.toggle('on', +b.dataset.r === r); if (playing) for (const k of act()) V[k].playbackRate = r; };
+  setRate(rate);
+  for (const b of document.querySelectorAll('#speeds button')) b.onclick = () => setRate(+b.dataset.r);
+  $('#bPlay').onclick = () => { if (playing) return pause(); if (cur && master && relNow() >= range[1] - 0.02) seek(range[0]); play(); };
+  const step = d => { if (!cur || !master) return; if (liveOn) setLive(false); pause(); seek(relNow() + d/fps()); };
+  $('#bPrev').onclick = () => step(-1); $('#bNext').onclick = () => step(1);
+  $('#scrub').oninput = () => { if (!cur || !master) return; if (liveOn) setLive(false); pause(); seek(range[0] + (+$('#scrub').value/1000) * (range[1] - range[0])); };
+  const nudge = d => { if (!cur || !master) return; const rel = relNow(); cur.nudge += d; $('#nVal').textContent = fmtN(cur.nudge); seek(rel); };
+  $('#nMinus').onclick = () => nudge(-1); $('#nPlus').onclick = () => nudge(1);
+  $('#bCap').onclick = () => trigger();
+  $('#bSave').onclick = () => {
+    if (!cur) return;
+    for (const r of act()) { const a = document.createElement('a'); a.href = cur.clips[r].url; a.download = `swing-${cur.n}-${SHORT[r]}.${(cur.clips[r].mime || '').includes('webm') ? 'webm' : 'mp4'}`; document.body.appendChild(a); a.click(); a.remove(); }
+  };
+  document.addEventListener('keydown', e => {
+    if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
+    if (e.key === ' ') { e.preventDefault(); $('#bPlay').click(); }
+    else if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1);
+    else if (e.key === 'c') trigger(); else if (e.key === 'l') setLive(!liveOn);
+  });
+
+  /* drawing: straight lines, kept across swings until cleared */
+  const lines = Object.assign({front:[], side:[]}, ls.get('lines', {}));
+  let drawOn = false;
+  $('#bDraw').onclick = () => { drawOn = !drawOn; $('#bDraw').classList.toggle('on', drawOn); $('#stage').classList.toggle('drawing', drawOn); };
+  $('#bClear').onclick = () => { lines.front = []; lines.side = []; ls.set('lines', lines); redraw(); };
+  const cvs = {};
+  for (const r of ROLES) {
+    const c = $('#vw-'+r+' canvas'); cvs[r] = c; let p0 = null, p1 = null;
+    const pt = e => { const b = c.getBoundingClientRect(); return [(e.clientX - b.left)/b.width, (e.clientY - b.top)/b.height]; };
+    c.onpointerdown = e => { p0 = pt(e); p1 = p0; c.setPointerCapture(e.pointerId); };
+    c.onpointermove = e => { if (p0) { p1 = pt(e); redraw(r, [p0, p1]); } };
+    c.onpointerup = () => { if (p0 && Math.hypot(p1[0]-p0[0], p1[1]-p0[1]) > 0.01) { lines[r].push([p0, p1]); ls.set('lines', lines); } p0 = null; redraw(); };
+  }
+  function redraw(tr, temp){
+    for (const r of ROLES) {
+      const c = cvs[r]; if (!c) continue;
+      const dpr = devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+      if (c.width !== Math.round(W*dpr) || c.height !== Math.round(H*dpr)) { c.width = Math.round(W*dpr); c.height = Math.round(H*dpr); }
+      const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+      g.lineWidth = 3; g.lineCap = 'round'; g.strokeStyle = '#ffd84d'; g.shadowColor = '#000a'; g.shadowBlur = 4;
+      const all = lines[r].concat(tr === r && temp ? [temp] : []);
+      for (const [a, b] of all) { g.beginPath(); g.moveTo(a[0]*W, a[1]*H); g.lineTo(b[0]*W, b[1]*H); g.stroke(); }
+    }
+  }
+  const ro = new ResizeObserver(() => redraw()); ro.observe($('#stage'));
+  setFit(cfg.fit); render(); renderHist();
+}
+}
+</script>
+</body>
+</html>
