@@ -108,6 +108,8 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 .st.lt i{width:10px;height:10px;border-radius:50%;background:var(--red)}
 .st.lt.on{background:var(--red);border-color:var(--red);color:#fff}.st.lt.on i{background:#fff}
 .st .mk{position:absolute;right:4px;top:4px}
+.st .sb{position:absolute;left:4px;top:3px;color:var(--ball);font-size:18px;line-height:1;text-shadow:0 1px 3px #000}
+.st.starred{border-color:#ffd84d88}
 #stage{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px;padding:calc(4px + var(--st)) calc(4px + var(--sr)) 4px calc(4px + var(--sl))}
 .view{position:relative;background:#000;border-radius:12px;overflow:hidden}
 .view video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -196,6 +198,8 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 .sw small{color:var(--mut)}
 .mk{font-style:normal;font-size:12px;padding:0 6px;border-radius:6px;font-weight:700}
 .mk.good{background:var(--turf);color:#06140b}.mk.miss{background:var(--red);color:#fff}
+#bStar.on{background:var(--ball);border-color:var(--ball);color:#1b1600}
+#bStar:not(.on) svg{fill:none;stroke:currentColor;stroke-width:1.8}
 #bCmp.on{background:var(--ball);border-color:var(--ball);color:#1b1600}
 .gin{min-height:44px;width:100%;border-radius:12px;border:1px solid var(--line);background:#000;padding:0 12px;font-size:16px;-webkit-user-select:text;user-select:text}
 #toast{position:absolute;left:50%;top:calc(18px + var(--st));transform:translateX(-50%);background:var(--ball);color:#1b1600;font-weight:700;padding:8px 18px;border-radius:12px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;z-index:9}
@@ -357,6 +361,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
     <div class="seg"><button id="bPrev" class="ib" aria-label="Back one frame"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM19 5v14L9 12z"/></svg></button><button id="bNext" class="ib" aria-label="Forward one frame"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM5 5v14l10-7z"/></svg></button></div>
     <div class="track"><input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Scrub"><span id="imp" class="hidden" title="Impact"></span><span id="ticks"></span></div>
     <span id="tlabel">–</span>
+    <button id="bStar" class="ib" aria-label="Star this swing" title="Star this swing"><svg viewBox="0 0 24 24"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4L2.8 9.5l6.4-.8z"/></svg></button>
     <button id="bLive"><i></i>LIVE</button>
     <button id="bSwings" aria-label="Swings"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg><b id="nSw">0</b></button>
     <button id="bCmp" aria-label="Compare swings"><svg viewBox="0 0 24 24"><path d="M2 5h9v14H2zm11 0h9v14h-9z"/></svg>Compare</button>
@@ -368,7 +373,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 
   <div id="shSwings" class="sheet hidden">
     <div id="tagBox" class="tagbox hidden">
-      <div class="row"><h3 id="tTitle" style="flex:1"></h3><button id="tStar">☆ Make reference</button></div>
+      <div class="row"><h3 id="tTitle" style="flex:1"></h3><button id="tStar">☆ Star</button></div>
       <div class="row"><select id="tClub" aria-label="Club" style="flex:1"></select><div class="seg"><button id="tGood">Good</button><button id="tMiss">Miss</button></div></div>
       <input id="tNote" maxlength="200" placeholder="Note, e.g. felt flat at the top" aria-label="Note">
     </div>
@@ -1127,22 +1132,29 @@ function startDisp(){
     $('#tTitle').textContent = `Swing ${cur.n} · ${cur.at.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}`;
     $('#tClub').value = cur.club || '';
     $('#tGood').classList.toggle('on', cur.mark === 'good'); $('#tMiss').classList.toggle('on', cur.mark === 'miss');
-    $('#tStar').classList.toggle('on', !!cur.star); $('#tStar').textContent = cur.star ? '★ Reference' : '☆ Make reference';
+    $('#tStar').classList.toggle('on', !!cur.star); $('#tStar').textContent = cur.star ? '★ Starred' : '☆ Star';
     if (document.activeElement !== $('#tNote')) $('#tNote').value = cur.note || '';
   }
   $('#tClub').onchange = () => { if (!cur) return; cur.club = $('#tClub').value; cfg.club = cur.club; save(); persist(cur); renderHist(); };
   $('#tGood').onclick = () => { if (!cur) return; cur.mark = cur.mark === 'good' ? '' : 'good'; persist(cur); renderHist(); };
   $('#tMiss').onclick = () => { if (!cur) return; cur.mark = cur.mark === 'miss' ? '' : 'miss'; persist(cur); renderHist(); };
-  $('#tStar').onclick = () => { if (!cur) return; cur.star = !cur.star; persist(cur); renderHist(); };
+  function toggleStar(){
+    if (!cur) return toast('Load a swing first');
+    cur.star = !cur.star; persist(cur); renderHist(); starBtn();
+    toast(cur.star ? `Swing ${cur.n} starred. It's kept until you unstar it` : `Swing ${cur.n} unstarred`);
+  }
+  const starBtn = () => { const b = $('#bStar'); b.classList.toggle('on', !!(cur && cur.star)); b.disabled = !cur; };
+  $('#tStar').onclick = toggleStar; $('#bStar').onclick = toggleStar;
   $('#tNote').oninput = () => { if (!cur) return; cur.note = $('#tNote').value.slice(0, 200); clearTimeout(renderTags.t); renderTags.t = setTimeout(() => persist(cur), 600); };
   $('#tNote').onkeydown = e => e.stopPropagation();
   const cardHTML = (s, extra) => `<button class="sw${extra || ''}" data-id="${s.id}">${s.thumb ? `<img src="${s.thumb}" alt="">` : '<div class="ph"></div>'}
     <span><b>${s.star ? '★ ' : ''}Swing ${s.n}</b>${s.club ? ' · ' + s.club : ''}${s.mark ? ` <i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}<br><small>${s.at.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}${s.keys && s.keys.ok ? ' · tempo ' + s.keys.ratio.toFixed(1) + ':1' : ''}</small></span></button>`;
   function dayLabel(d){ if (d === today) return 'Today'; const [y, m, dd] = d.split('-').map(Number); return new Date(y, m-1, dd).toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'}); }
   function renderStrip(){
+    starBtn();
     const list = swings.filter(s => s.shown).slice(-10).reverse();
     $('#stLive').classList.toggle('on', liveOn);
-    $('#stList').innerHTML = list.map(s => `<button class="st${cur === s && !liveOn ? ' cur' : ''}" data-id="${s.id}" aria-label="Swing ${s.n}">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="ph2">Swing ${s.n}</span>`}<span>${s.star ? '★ ' : ''}${s.n}${s.club ? ' · ' + s.club : ''}</span>${s.mark ? `<i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}</button>`).join('');
+    $('#stList').innerHTML = list.map(s => `<button class="st${cur === s && !liveOn ? ' cur' : ''}${s.star ? ' starred' : ''}" data-id="${s.id}" aria-label="Swing ${s.n}">${s.thumb ? `<img src="${s.thumb}" alt="">` : `<span class="ph2">Swing ${s.n}</span>`}${s.star ? '<b class="sb">★</b>' : ''}<span>${s.n}${s.club ? ' · ' + s.club : ''}</span>${s.mark ? `<i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}</button>`).join('');
     for (const b of $('#stList').querySelectorAll('.st')) b.onclick = () => { const s = swings.find(x => x.id === b.dataset.id); if (!s) return; autoOnce = false; setLive(false); load(s, true); };
   }
   $('#stLive').onclick = () => { if (!liveOn && !Object.keys(conns).length) return toast('No cameras connected'); setLive(!liveOn); };
@@ -1151,8 +1163,9 @@ function startDisp(){
     renderTags();
     const list = swings.filter(s => s.shown).slice().reverse();
     if (!list.length) { $('#sgrid').innerHTML = '<p class="small" style="margin:0">No swings yet. Hit a ball, or use Capture now in the ⋯ menu.</p>'; return; }
-    const days = [...new Set(list.map(s => s.day))];
-    $('#sgrid').innerHTML = days.map(d => `<h4>${dayLabel(d)}</h4><div class="sgrid">${list.filter(s => s.day === d).map(s => cardHTML(s, cur === s ? ' cur' : '')).join('')}</div>`).join('');
+    const days = [...new Set(list.map(s => s.day))], starred = list.filter(s => s.star);
+    $('#sgrid').innerHTML = (starred.length ? `<h4>★ Starred</h4><div class="sgrid">${starred.map(s => cardHTML(s, cur === s ? ' cur' : '')).join('')}</div>` : '')
+      + days.map(d => `<h4>${dayLabel(d)}</h4><div class="sgrid">${list.filter(s => s.day === d).map(s => cardHTML(s, cur === s ? ' cur' : '')).join('')}</div>`).join('');
     for (const b of $('#sgrid').querySelectorAll('.sw')) b.onclick = () => { const s = swings.find(x => x.id === b.dataset.id); if (s) { autoOnce = false; setLive(false); load(s, true); renderHist(); } };
   }
 
@@ -1305,7 +1318,7 @@ function startDisp(){
     if (['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)) return;
     if (e.key === ' ') { e.preventDefault(); $('#bPlay').click(); }
     else if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1);
-    else if (e.key === 'c') trigger(); else if (e.key === 'l') setLive(!liveOn);
+    else if (e.key === 'c') trigger(); else if (e.key === 's') toggleStar(); else if (e.key === 'l') setLive(!liveOn);
   });
 
   /* ---------- rendering panes (thumbnails & export) with the same crop/mirror as the screen ---------- */
