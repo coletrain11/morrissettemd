@@ -373,10 +373,13 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
 
   <div id="shSwings" class="sheet hidden">
     <div class="row"><h3 style="flex:1">Swings</h3><button id="bSess">Export session…</button></div>
+    <div class="row small" style="margin-top:-8px"><span id="storeTxt" style="flex:1 1 200px"></span></div>
+    <div class="row small hidden" id="folderRow"><span id="folderTxt" style="flex:1 1 220px"></span><button id="folderBtn" style="min-height:38px"></button></div>
     <div id="tagBox" class="tagbox hidden">
       <div class="row"><h3 id="tTitle" style="flex:1"></h3><button id="tStar">☆ Star</button></div>
       <div class="row"><select id="tClub" aria-label="Club" style="flex:1"></select><div class="seg"><button id="tGood">Good</button><button id="tMiss">Miss</button></div></div>
       <input id="tNote" maxlength="200" placeholder="Note, e.g. felt flat at the top" aria-label="Note">
+      <div class="row"><span style="flex:1"></span><button id="tDel" style="min-height:38px;color:var(--red)">Delete this swing</button></div>
     </div>
     <div id="sgrid"></div>
   </div>
@@ -407,7 +410,7 @@ h1,h2,h3{margin:0;line-height:1.05;text-wrap:balance}
       <div class="row"><h2 style="flex:1">Export session</h2><button id="sxClose" class="ib" aria-label="Close">✕</button></div>
       <div id="sxOpts" style="display:grid;gap:14px">
         <div class="row"><span class="lab">Swings</span><div class="seg" id="sxWhich"><button data-w="today">Today</button><button data-w="star">Starred</button><button data-w="all">All saved</button></div></div>
-        <div class="row"><span class="lab">Format</span><div class="seg" id="sxFmt"><button data-f="zip">All clips (.zip)</button><button data-f="reel">One video</button></div></div>
+        <div class="row"><span class="lab">Format</span><div class="seg" id="sxFmt"><button data-f="sbs">Side-by-side videos</button><button data-f="reel">One combined video</button><button data-f="zip">Original clips</button></div></div>
         <div class="row" id="sxSpdRow"><span class="lab">Video speed</span><div class="seg" id="sxSpd"><button data-x="1">1×</button><button data-x="0.5">½×</button></div></div>
         <p class="small" id="sxInfo" style="margin:0"></p>
         <button class="pri" id="sxGo" style="min-height:54px;font-size:18px">Export</button>
@@ -883,22 +886,41 @@ function startDisp(){
   const DB = (() => {
     let dbp = null;
     const open = () => dbp || (dbp = new Promise((res, rej) => {
-      const r = indexedDB.open('swingcam', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('swings', {keyPath:'id'});
+      const r = indexedDB.open('swingcam', 2);
+      r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('swings')) d.createObjectStore('swings', {keyPath:'id'}); if (!d.objectStoreNames.contains('kv')) d.createObjectStore('kv'); };
       r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
     }));
-    const tx = async (m, fn) => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction('swings', m); const q = fn(t.objectStore('swings')); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); };
-    return {put: o => tx('readwrite', st => st.put(o)), del: id => tx('readwrite', st => st.delete(id)), all: () => tx('readonly', st => st.getAll())};
+    const tx = async (m, fn, store = 'swings') => { const db = await open(); return new Promise((res, rej) => { const t = db.transaction(store, m); const q = fn(t.objectStore(store)); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); };
+    return {put: o => tx('readwrite', st => st.put(o)), del: id => tx('readwrite', st => st.delete(id)), all: () => tx('readonly', st => st.getAll()),
+      kvGet: k => tx('readonly', st => st.get(k), 'kv'), kvPut: (k, v) => tx('readwrite', st => st.put(v, k), 'kv')};
   })();
-  const pack = s => ({missing:s.missing || [], id:s.id, n:s.n, at:s.at.getTime(), day:s.day, pre:s.pre, post:s.post, nudge:s.nudge, thumb:s.thumb || '', club:s.club || '', note:s.note || '',
+  const pack = s => ({saved:s.saved || {}, missing:s.missing || [], id:s.id, n:s.n, at:s.at.getTime(), day:s.day, pre:s.pre, post:s.post, nudge:s.nudge, thumb:s.thumb || '', club:s.club || '', note:s.note || '',
     mark:s.mark || '', star:!!s.star, keys:s.keys || null, mot:s.mot || {},
     clips:Object.fromEntries(Object.entries(s.clips).map(([r, c]) => [r, {blob:c.blob, imp:c.imp, fps:c.fps, mime:c.mime, heard:!!c.heard}]))});
   const persist = s => { if (s && s.shown) DB.put(pack(s)).catch(e => toast('Could not save swing: ' + (e && e.name || 'storage error'))); };
-  function prune(){
-    const shown = swings.filter(s => s.shown), keep = new Set(shown.slice(-30).map(s => s.id));
-    const gone = shown.filter(s => !s.star && !keep.has(s.id) && s !== cur && s !== ref);
-    for (const s of gone) { DB.del(s.id).catch(() => {}); for (const k in s.clips) URL.revokeObjectURL(s.clips[k].url); }
-    if (gone.length) swings = swings.filter(s => !gone.includes(s));
+  /* every swing is kept. Only if this device's storage is nearly full are the oldest unstarred swings from earlier days removed (never today's). */
+  async function prune(){
+    try {
+      if (!navigator.storage || !navigator.storage.estimate) return;
+      let e = await navigator.storage.estimate(); if (!e.quota || e.usage / e.quota < 0.85) return storeTxt(e);
+      const old = swings.filter(s => s.shown && !s.star && s.day !== today && s !== cur && s !== ref);
+      while (old.length && e.usage / e.quota > 0.75) {
+        const s = old.shift(); await DB.del(s.id).catch(() => {}); for (const k in s.clips) URL.revokeObjectURL(s.clips[k].url);
+        swings = swings.filter(x => x !== s); e = await navigator.storage.estimate();
+      }
+      toast('Storage was nearly full, so the oldest unstarred swings from earlier days were removed'); storeTxt(e); renderHist();
+    } catch(err) {}
+  }
+  function storeTxt(e){
+    const n = swings.filter(s => s.shown).length;
+    $('#storeTxt').textContent = `${n} swing${n === 1 ? '' : 's'} saved on this device` + (e && e.usage ? ` · ${(e.usage/1e9).toFixed(e.usage > 1e10 ? 0 : 1)} GB` : '');
+  }
+  async function delSwing(s){
+    await DB.del(s.id).catch(() => {}); for (const k in s.clips) URL.revokeObjectURL(s.clips[k].url);
+    swings = swings.filter(x => x !== s); countSw();
+    if (ref === s) { ref = null; if (mode !== 'normal') setMode('normal', true); }
+    if (cur === s) { cur = null; T = []; const last = swings.filter(x => x.shown).slice(-1)[0]; if (last) load(last, false); else { paneState(); keysUI(); } }
+    renderHist(); prune(); toast(`Swing ${s.n} deleted`);
   }
   async function restore(){
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch(e){}
@@ -1099,7 +1121,7 @@ function startDisp(){
     if (!s.shown) { stats[r].ok++; if (s.expect.every(k => s.clips[k])) ready(s); return; }
     stats[r].late++; if (s.missing && s.missing.includes(r)) { s.missing = s.missing.filter(x => x !== r); stats[r].miss = Math.max(0, stats[r].miss - 1); }
     try { s.keys = computeKeys(Object.values(s.mot)); } catch(e){}
-    s.thumb = ''; delete s.thumb; persist(s); render(); if (cur !== s) queueThumb(s);
+    s.thumb = ''; delete s.thumb; persist(s); render(); if (cur !== s) queueThumb(s); saveToFolder(s);
     toast(`${SHORT[r]} video for swing ${s.n} arrived`);
     if (cur === s && mode === 'normal' && !exporting) load(s, playing);
   }
@@ -1112,7 +1134,7 @@ function startDisp(){
     for (const r of s.missing) { stats[r].miss++; if (conns[r]) setTimeout(() => askMissing(r), 500); }
     if (s.missing.length) toast(`Swing ${s.n}: still waiting for ${s.missing.map(r => SHORT[r]).join(', ')} video`);
     render();
-    countSw(); persist(s); prune(); renderStrip(); setTimeout(() => queueThumb(s), 2500);
+    countSw(); persist(s); prune(); renderStrip(); setTimeout(() => queueThumb(s), 2500); saveToFolder(s);
     if (cfg.upClips) for (const r in s.clips) driveQueue(s.clips[r].blob, `swing-${s.n}-${SHORT[r]}.${ext(s.clips[r].mime)}`, s.day);
     if (exporting) return;
     setLive(false);
@@ -1164,6 +1186,12 @@ function startDisp(){
   $('#tStar').onclick = toggleStar; $('#bStar').onclick = toggleStar;
   $('#tNote').oninput = () => { if (!cur) return; cur.note = $('#tNote').value.slice(0, 200); clearTimeout(renderTags.t); renderTags.t = setTimeout(() => persist(cur), 600); };
   $('#tNote').onkeydown = e => e.stopPropagation();
+  let delArm = null;
+  $('#tDel').onclick = () => {
+    if (!cur) return;
+    if (delArm !== cur) { delArm = cur; $('#tDel').textContent = cur.star ? 'Starred: tap again to delete' : 'Tap again to delete'; setTimeout(() => { delArm = null; $('#tDel').textContent = 'Delete this swing'; }, 3000); return; }
+    delArm = null; $('#tDel').textContent = 'Delete this swing'; delSwing(cur);
+  };
   const cardHTML = (s, extra) => `<button class="sw${extra || ''}" data-id="${s.id}">${s.thumb ? `<img src="${s.thumb}" alt="">` : '<div class="ph"></div>'}
     <span><b>${s.star ? '★ ' : ''}Swing ${s.n}</b>${s.club ? ' · ' + s.club : ''}${s.mark ? ` <i class="mk ${s.mark}">${s.mark === 'good' ? 'Good' : 'Miss'}</i>` : ''}<br><small>${s.at.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}${s.keys && s.keys.ok ? ' · tempo ' + s.keys.ratio.toFixed(1) + ':1' : ''}</small></span></button>`;
   function dayLabel(d){ if (d === today) return 'Today'; const [y, m, dd] = d.split('-').map(Number); return new Date(y, m-1, dd).toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'}); }
@@ -1176,7 +1204,7 @@ function startDisp(){
   }
   $('#stLive').onclick = () => { if (!liveOn && !Object.keys(conns).length) return toast('No cameras connected'); setLive(!liveOn); };
   function renderHist(){
-    renderStrip();
+    renderStrip(); storeTxt();
     renderTags();
     const list = swings.filter(s => s.shown).slice().reverse();
     if (!list.length) { $('#sgrid').innerHTML = '<p class="small" style="margin:0">No swings yet. Hit a ball, or use Capture now in the ⋯ menu.</p>'; return; }
@@ -1467,20 +1495,67 @@ function startDisp(){
   $('#xShare').onclick = async () => { try { await navigator.share({files:[xFile], title:xFile.name}); } catch(e){} };
   $('#xDl').onclick = () => { if (xUrl) dl(xUrl, xFile.name); };
 
+
+  /* ---------- auto-save every swing to a folder on this computer (Chrome or Edge on a Mac/PC) ---------- */
+  const canFolder = !!window.showDirectoryPicker;
+  let dirH = null, dirOK = false, folderQ = Promise.resolve();
+  const plainName = (s, r, c) => `${s.day}-swing-${String(s.n).padStart(3, '0')}-${SHORT[r]}.${ext(c.mime)}`;
+  function folderUI(){
+    $('#folderRow').classList.toggle('hidden', !canFolder);
+    if (!canFolder) return;
+    if (!dirH) { $('#folderTxt').textContent = 'Also save every swing to a folder on this computer, as it happens.'; $('#folderBtn').textContent = 'Choose folder…'; }
+    else if (!dirOK) { $('#folderTxt').textContent = `Auto-save to “${dirH.name}” is paused until you allow it again.`; $('#folderBtn').textContent = 'Resume auto-save'; }
+    else { $('#folderTxt').textContent = `Auto-saving every swing to “${dirH.name}” (one folder per day).`; $('#folderBtn').textContent = 'Change folder'; }
+  }
+  $('#folderBtn').onclick = async () => {
+    try {
+      if (dirH && !dirOK) { dirOK = (await dirH.requestPermission({mode:'readwrite'})) === 'granted'; }
+      else { dirH = await window.showDirectoryPicker({id:'swingcam', mode:'readwrite'}); dirOK = true; await DB.kvPut('dir', dirH); }
+    } catch(e) { /* cancelled */ }
+    folderUI(); if (dirOK) backfillFolder();
+  };
+  async function initFolder(){
+    if (!canFolder) return folderUI();
+    try { dirH = await DB.kvGet('dir') || null; if (dirH) dirOK = (await dirH.queryPermission({mode:'readwrite'})) === 'granted'; } catch(e) { dirH = null; }
+    folderUI(); if (dirOK) backfillFolder();
+  }
+  const backfillFolder = () => { for (const s of swings.filter(x => x.shown)) saveToFolder(s); };
+  function saveToFolder(s){ folderQ = folderQ.then(() => writeSwing(s)).catch(() => {}); return folderQ; }
+  async function writeSwing(s){
+    if (!dirH || !dirOK || !s.shown || !swings.includes(s)) return;
+    const need = ROLES.filter(r => s.clips[r] && s.clips[r].blob && !(s.saved && s.saved[r]));
+    if (!need.length) return;
+    try {
+      const day = await dirH.getDirectoryHandle(s.day, {create:true});
+      for (const r of need) {
+        const c = s.clips[r], fh = await day.getFileHandle(plainName(s, r, c), {create:true}), w = await fh.createWritable();
+        await w.write(c.blob); await w.close(); (s.saved = s.saved || {})[r] = 1;
+      }
+      persist(s); writeDayCsv(s.day, day);
+    } catch(e) { dirOK = false; folderUI(); toast('Auto-save to the folder stopped. Open Swings to resume it'); }
+  }
+  let csvT = {};
+  function writeDayCsv(d, dayH){
+    clearTimeout(csvT[d]); csvT[d] = setTimeout(async () => {
+      try { const fh = await dayH.getFileHandle('swings.csv', {create:true}), w = await fh.createWritable(); await w.write(sessionCsv(swings.filter(x => x.shown && x.day === d), plainName)); await w.close(); } catch(e) {}
+    }, 1500);
+  }
   /* ---------- export a whole session: every clip in a zip, or one back-to-back video ---------- */
-  const sx = {which:'today', fmt:'zip', spd:1, file:null, url:null, stop:false};
+  const sx = {which:'today', fmt:'sbs', spd:1, file:null, url:null, stop:false};
   const sxList = () => swings.filter(s => s.shown && (sx.which === 'all' || (sx.which === 'star' ? s.star : s.day === today)));
   const sxLabel = () => sx.which === 'star' ? 'starred' : sx.which === 'all' ? 'all' : today;
   function sxSet(){
     for (const b of document.querySelectorAll('#sxWhich button')) b.classList.toggle('on', b.dataset.w === sx.which);
     for (const b of document.querySelectorAll('#sxFmt button')) b.classList.toggle('on', b.dataset.f === sx.fmt);
     for (const b of document.querySelectorAll('#sxSpd button')) b.classList.toggle('on', +b.dataset.x === sx.spd);
-    $('#sxSpdRow').classList.toggle('hidden', sx.fmt !== 'reel');
+    $('#sxSpdRow').classList.toggle('hidden', sx.fmt === 'zip');
     const L = sxList(), mb = L.reduce((a, s) => a + Object.values(s.clips).reduce((b, c) => b + (c.blob ? c.blob.size : 0), 0), 0) / 1e6;
     const mins = Math.max(1, Math.ceil(L.reduce((a, s) => a + ((s.pre || cfg.pre) + (s.post || cfg.post)) / sx.spd + 1.3, 0) / 60));
-    $('#sxInfo').textContent = !L.length ? 'No swings in this group yet.' : sx.fmt === 'zip'
-      ? `${L.length} swing${L.length > 1 ? 's' : ''}, both angles, about ${Math.max(1, Math.round(mb))} MB, plus a spreadsheet (swings.csv) of clubs, ratings, stars, notes and tempo.`
-      : `${L.length} swing${L.length > 1 ? 's' : ''} back to back, both angles side by side, each with a title card. Takes about ${mins} min to make; it plays on screen while it records.`;
+    const nn = `${L.length} swing${L.length > 1 ? 's' : ''}`;
+    $('#sxInfo').textContent = !L.length ? 'No swings in this group yet.'
+      : sx.fmt === 'zip' ? `${nn}: the original DTL and FO clips, about ${Math.max(1, Math.round(mb))} MB, plus a spreadsheet (swings.csv) of clubs, ratings, stars, notes and tempo.`
+      : sx.fmt === 'sbs' ? `${nn}: one MP4 per swing with both angles side by side, as on screen${L.length > 1 ? ', in a .zip with the spreadsheet' : ''}. Takes about ${mins} min; each swing plays on screen while it records.`
+      : `${nn} back to back in one MP4, both angles side by side, each with a title card. Takes about ${mins} min; it plays on screen while it records.`;
     $('#sxGo').disabled = !L.length;
   }
   for (const b of document.querySelectorAll('#sxWhich button')) b.onclick = () => { sx.which = b.dataset.w; sxSet(); };
@@ -1498,9 +1573,12 @@ function startDisp(){
   $('#sxStop').onclick = () => { sx.stop = true; if (onEnd) onEnd(); };
   $('#sxGo').onclick = async () => {
     const L = sxList().slice().sort((a, b) => a.at - b.at); if (!L.length || exporting) return;
-    $('#sxOpts').classList.add('hidden'); $('#sxRun').classList.remove('hidden'); $('#sxStop').classList.toggle('hidden', sx.fmt !== 'reel'); sx.stop = false;
+    $('#sxOpts').classList.add('hidden'); $('#sxRun').classList.remove('hidden'); $('#sxStop').classList.toggle('hidden', sx.fmt === 'zip'); sx.stop = false;
     try {
-      const f = sx.fmt === 'zip' ? await sxZip(L) : await sxReel(L);
+      let f;
+      if (sx.fmt === 'zip') f = await sxZip(L, null);
+      else if (sx.fmt === 'reel') f = await sxReel(L, false);
+      else { const files = await sxReel(L, true); f = !files.length ? null : files.length === 1 ? files[0] : await sxZip(L.filter(s => files.some(x => x.swing === s)), files); }
       if (!f) return sxReset();
       sx.file = f; sx.url = URL.createObjectURL(f);
       $('#sxRun').classList.add('hidden'); $('#sxDone').classList.remove('hidden');
@@ -1513,22 +1591,29 @@ function startDisp(){
   $('#sxDl').onclick = () => { if (sx.url) dl(sx.url, sx.file.name); };
   const csvCell = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
   const fname = s => `${s.day}-swing-${String(s.n).padStart(3, '0')}${s.club ? '-' + s.club : ''}`;
-  async function sxZip(L){
-    $('#sxMsg').textContent = 'Loading the zip tool…';
-    if (!window.JSZip) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'; sc.onload = res; sc.onerror = () => rej(new Error('could not load the zip tool (no internet?)')); document.head.appendChild(sc); });
-    const zip = new JSZip(), rows = [['Swing','Date','Time','Club','Rating','Starred','Tempo','Backswing (s)','Downswing (s)','Note','DTL file','FO file']];
+  function sessionCsv(L, nameFn, extra){
+    const rows = [['Swing','Date','Time','Club','Rating','Starred','Tempo','Backswing (s)','Downswing (s)','Note', ...(extra ? ['Side-by-side file'] : ['DTL file','FO file'])]];
     for (const s of L) {
-      const files = {};
-      for (const r of ROLES) if (s.clips[r] && s.clips[r].blob) { const n = `${fname(s)}-${SHORT[r]}.${ext(s.clips[r].mime)}`; zip.file(n, s.clips[r].blob); files[r] = n; }
       const k = s.keys && s.keys.ok ? s.keys : null;
       rows.push([s.n, s.day, s.at.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}), s.club || '', s.mark === 'good' ? 'Good' : s.mark === 'miss' ? 'Miss' : '', s.star ? 'yes' : '',
-        k ? k.ratio.toFixed(1) + ':1' : '', k ? k.back.toFixed(2) : '', k ? k.down.toFixed(2) : '', s.note || '', files.side || '', files.front || '']);
+        k ? k.ratio.toFixed(1) + ':1' : '', k ? k.back.toFixed(2) : '', k ? k.down.toFixed(2) : '', s.note || '',
+        ...(extra ? [extra(s)] : ROLES.map(r => s.clips[r] ? nameFn(s, r, s.clips[r]) : ''))]);
     }
-    zip.file('swings.csv', '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'));
-    const blob = await zip.generateAsync({type:'blob', compression:'STORE'}, m => { $('#sxBar').style.width = m.percent + '%'; $('#sxMsg').textContent = `Packing ${Math.round(m.percent)}%`; });
-    return new File([blob], `swing-cam-${sxLabel()}.zip`, {type:'application/zip'});
+    return '\ufeff' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
   }
-  async function sxReel(L){
+  async function sxZip(L, built){
+    $('#sxMsg').textContent = 'Loading the zip tool…';
+    if (!window.JSZip) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'; sc.onload = res; sc.onerror = () => rej(new Error('could not load the zip tool (no internet?)')); document.head.appendChild(sc); });
+    const zip = new JSZip(), clipName = (s, r, c) => `${fname(s)}-${SHORT[r]}.${ext(c.mime)}`;
+    if (built) { for (const f of built) zip.file(f.name, f); zip.file('swings.csv', sessionCsv(L, null, s => (built.find(f => f.swing === s) || {}).name || '')); }
+    else {
+      for (const s of L) for (const r of ROLES) if (s.clips[r] && s.clips[r].blob) zip.file(clipName(s, r, s.clips[r]), s.clips[r].blob);
+      zip.file('swings.csv', sessionCsv(L, clipName));
+    }
+    const blob = await zip.generateAsync({type:'blob', compression:'STORE'}, m => { $('#sxBar').style.width = m.percent + '%'; $('#sxMsg').textContent = `Packing ${Math.round(m.percent)}%`; });
+    return new File([blob], `swing-cam-${sxLabel()}${built ? '-side-by-side' : '-clips'}.zip`, {type:'application/zip'});
+  }
+  async function sxReel(L, perSwing){
     if (liveOn) setLive(false); if (mode !== 'normal') setMode('normal', true);
     const vb = $('#vw-side').getBoundingClientRect(), H = 1080, PW = Math.round(H * (vb.width / vb.height) / 2) * 2, GAP = 8, W = PW*2 + GAP;
     const cv = $('#sxCanvas'); cv.width = W; cv.height = H; cv.classList.remove('hidden');
@@ -1558,30 +1643,36 @@ function startDisp(){
         const tt = fmtT(rel); g.fillText(tt, W - fs*0.8 - g.measureText(tt).width, H - fs*0.9); g.shadowBlur = 0;
       }
     };
-    const mime = pickMime(), chunks = [];
-    const rec = new MediaRecorder(cv.captureStream(60), {...(mime ? {mimeType:mime} : {}), videoBitsPerSecond:10e6});
-    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-    const stopped = new Promise(res => rec.onstop = res);
-    exporting = true; xRate = sx.spd; rec.start();
+    const mime = pickMime(), outs = [];
+    const newRec = () => {
+      const R = {chunks:[]}; R.rec = new MediaRecorder(cv.captureStream(60), {...(mime ? {mimeType:mime} : {}), videoBitsPerSecond:10e6});
+      R.rec.ondataavailable = e => { if (e.data && e.data.size) R.chunks.push(e.data); };
+      R.stopped = new Promise(res => R.rec.onstop = res); return R;
+    };
+    const finish = async (R, name, sw) => { await sleep(150); R.rec.stop(); await R.stopped; if (!R.chunks.length) return; const type = R.chunks[0].type || mime || 'video/mp4'; const f = new File([new Blob(R.chunks, {type})], `${name}.${ext(type)}`, {type}); f.swing = sw; outs.push(f); };
+    let R = perSwing ? null : newRec();
+    exporting = true; xRate = sx.spd; if (R) R.rec.start();
     try {
       for (let i = 0; i < L.length && !sx.stop; i++) {
         s = L[i]; const k = s.keys && s.keys.ok ? s.keys : null;
         card = [[`Swing ${s.n}`, s.club].filter(Boolean).join(' · '), [s.at.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}), s.star ? '★ Starred' : '', s.mark === 'good' ? 'Good' : s.mark === 'miss' ? 'Miss' : '', k ? `Tempo ${k.ratio.toFixed(1)} : 1` : '', s.note].filter(Boolean).join('   ·   ')];
         $('#sxMsg').textContent = `Recording swing ${i + 1} of ${L.length}…`; $('#sxBar').style.width = (i / L.length * 100) + '%';
+        if (perSwing) card = null;
         await load(s, false); pause(); seek(range[0]); await Promise.all(T.map(t => seeked(t.v)));
-        await sleep(1100); card = null;
+        if (perSwing) { xDraw(); R = newRec(); R.rec.start(); await sleep(150); }
+        else { await sleep(1100); card = null; }
         if (sx.stop) break;
         await new Promise(res => { onEnd = res; play(); });
         onEnd = null; await sleep(120);
+        if (perSwing) { await finish(R, `${fname(s)}-side-by-side`, s); R = null; }
       }
     } finally {
-      xDraw(); await sleep(200); rec.stop(); await stopped;
+      xDraw();
+      if (R) await finish(R, perSwing ? `${fname(s)}-side-by-side` : `swing-cam-${sxLabel()}-session`, s);
       exporting = false; xDraw = null; onEnd = null; cv.classList.add('hidden'); pause();
     }
     $('#sxBar').style.width = '100%';
-    if (!chunks.length) return null;
-    const type = chunks[0].type || mime || 'video/mp4';
-    return new File([new Blob(chunks, {type})], `swing-cam-${sxLabel()}-session.${ext(type)}`, {type});
+    return perSwing ? outs : (outs[0] || null);
   }
 
   /* ---------- Google Drive upload (optional; needs your own OAuth client ID) ---------- */
@@ -1675,7 +1766,7 @@ function startDisp(){
     for (const k in inbound) { const x = inbound[k]; if (t - x.last > 8000) { delete inbound[k]; const r = k.slice(x.m.id.length); if (conns[r]) sendTo(r, {t:'resend', ids:[x.m.id]}); } }
   }, 2000);
   setInterval(() => { for (const r in conns) askMissing(r); }, 10000);
-  restore();
+  restore().then(initFolder);
 }
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
